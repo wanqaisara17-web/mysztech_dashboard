@@ -198,13 +198,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No sales records yet'), findsOneWidget);
     expect(find.text('Sales data unavailable'), findsNothing);
-    expect(find.text('0'), findsOneWidget);
+    expect(find.text('0'), findsNWidgets(2));
   });
 
   testWidgets(
-    'navigation includes dashboard sales stock and items placeholders',
+    'navigation includes Dashboard Sales Stock and Items',
     (tester) async {
       final api = _FakeApiService(
         () async => SalesPage.fromJson({

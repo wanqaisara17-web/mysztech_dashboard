@@ -102,7 +102,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const _SummaryCard(
-                      label: 'Low-stock items',
+                      label: 'Low-stock records',
                       value: '…',
                       detail: 'Loading inventory from staging API',
                       icon: Icons.inventory_2_outlined,
@@ -111,7 +111,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                   }
                   if (snapshot.hasError) {
                     return const _SummaryCard(
-                      label: 'Low-stock items',
+                      label: 'Low-stock records',
                       value: '—',
                       detail: 'Stock data unavailable',
                       icon: Icons.inventory_2_outlined,
@@ -126,7 +126,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                       .where((row) => row.isLowStock)
                       .length;
                   return _SummaryCard(
-                    label: 'Low-stock items',
+                    label: 'Low-stock records',
                     value: rows.isNotEmpty && thresholdRows.isEmpty
                         ? '—'
                         : '$lowStockCount',

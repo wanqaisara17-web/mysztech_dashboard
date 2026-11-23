@@ -9,7 +9,7 @@ A green themed Flutter app for monitoring the POS staging API with an authorized
 3. Run `flutter run -d <device-id>`.
 4. Open **Sales**, choose **Configure token**, and enter an authorized staging token. The token may be entered with or without the `Bearer ` prefix. It is held in memory for the current app process only.
 
-The app requests `/api/v2/sales/list`. HTTP 200 with an empty `data` array displays **No sales records yet**. Retry or pull down to refresh. The app does not log tokens or authorization headers.
+Sales requests `/api/v2/sales/list`. HTTP 200 with an empty `data` array displays **No sales records yet**. Retry or pull down to refresh. The app does not log tokens or authorization headers.
 
 ## Available data and limits
 
