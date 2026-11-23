@@ -200,4 +200,70 @@ void main() {
       }
     },
   );
+
+  test(
+    'login posts OpenAPI credentials and uses returned access token',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      Map<String, dynamic>? loginBody;
+      var authorization = '';
+      final serverSubscription = server.listen((request) async {
+        request.response.headers.contentType = ContentType.json;
+        if (request.method == 'POST' && request.uri.path == '/api/v2/login') {
+          loginBody = jsonDecode(
+            await utf8.decoder.bind(request).join(),
+          ) as Map<String, dynamic>;
+          request.response.write(
+            jsonEncode({
+              'is_success': true,
+              'status_code': 200,
+              'message': null,
+              'data': {
+                'id': 7,
+                'name': 'Test User',
+                'email': 'staff@example.com',
+                'access_token': 'api-issued-session-token',
+              },
+              'errors': null,
+            }),
+          );
+        } else {
+          authorization =
+              request.headers.value(HttpHeaders.authorizationHeader) ?? '';
+          request.response.write(
+            jsonEncode({
+              'is_success': true,
+              'status_code': 200,
+              'data': <dynamic>[],
+              'paginator': {'total': 0},
+            }),
+          );
+        }
+        await request.response.close();
+      });
+      final api = PosApiService(baseUrl: 'http://127.0.0.1:${server.port}/api');
+
+      try {
+        final user = await api.login(
+          email: ' staff@example.com ',
+          password: 'test-password',
+          licenseKey: ' license-123 ',
+        );
+        await api.getSales();
+
+        expect(user.name, 'Test User');
+        expect(user.email, 'staff@example.com');
+        expect(loginBody, {
+          'email': 'staff@example.com',
+          'password': 'test-password',
+          'license_key': 'license-123',
+        });
+        expect(authorization, 'Bearer api-issued-session-token');
+      } finally {
+        api.close();
+        await serverSubscription.cancel();
+        await server.close(force: true);
+      }
+    },
+  );
 }

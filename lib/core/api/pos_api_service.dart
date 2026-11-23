@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../models/inventory_movement.dart';
 import '../models/inventory_stock.dart';
 import '../models/item.dart';
+import '../models/authenticated_user.dart';
 import '../models/sales_page.dart';
 
 const posApiProductionUrl = 'https://mysztech.com/api';
@@ -59,6 +60,113 @@ class PosApiService {
     _inventoryRequest = null;
     _movementsRequest = null;
     _categoryNames.clear();
+  }
+
+  Future<AuthenticatedUser> login({
+    required String email,
+    required String password,
+    required String licenseKey,
+  }) async {
+    try {
+      final request = await _client
+          .postUrl(Uri.parse('$baseUrl/v2/login'))
+          .timeout(requestTimeout);
+      request.headers.contentType = ContentType.json;
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.write(
+        jsonEncode({
+          'email': email.trim(),
+          'password': password,
+          'license_key': licenseKey.trim(),
+        }),
+      );
+      final response = await request.close().timeout(requestTimeout);
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(requestTimeout);
+      Map<String, dynamic>? decoded;
+      try {
+        final value = jsonDecode(body);
+        if (value is Map<String, dynamic>) decoded = value;
+      } on FormatException {
+        decoded = null;
+      }
+
+      final statusCode = decoded?['status_code'];
+      final apiStatus = statusCode is int
+          ? statusCode
+          : int.tryParse('$statusCode');
+      final effectiveStatus = apiStatus ?? response.statusCode;
+      if (effectiveStatus == HttpStatus.unauthorized) {
+        throw const PosApiException(
+          'Email, password, or license key was not accepted.',
+          statusCode: HttpStatus.unauthorized,
+        );
+      }
+      if (effectiveStatus == HttpStatus.forbidden) {
+        throw const PosApiException(
+          'This account is not permitted to sign in to the staging service.',
+          statusCode: HttpStatus.forbidden,
+        );
+      }
+      if (effectiveStatus == HttpStatus.unprocessableEntity) {
+        throw const PosApiException(
+          'Check the email, password, and license key, then try again.',
+          statusCode: HttpStatus.unprocessableEntity,
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw PosApiException(
+          'The sign-in service returned HTTP ${response.statusCode}.',
+          statusCode: response.statusCode,
+        );
+      }
+      if (decoded == null ||
+          decoded['is_success'] != true ||
+          apiStatus != 200) {
+        throw const PosApiException(
+          'The sign-in service returned an unreadable or unsuccessful response.',
+        );
+      }
+      final data = decoded['data'];
+      if (data is! Map<String, dynamic>) {
+        throw const PosApiException(
+          'The sign-in response did not include a user session.',
+        );
+      }
+      final accessToken = data['access_token'];
+      if (accessToken is! String || accessToken.trim().isEmpty) {
+        throw const PosApiException(
+          'The sign-in response did not include an access token.',
+        );
+      }
+      setToken(accessToken);
+      return AuthenticatedUser(
+        name: data['name']?.toString() ?? 'User',
+        email: data['email']?.toString(),
+      );
+    } on PosApiException {
+      rethrow;
+    } on TimeoutException {
+      throw const PosApiException(
+        'Sign-in timed out. Check your connection and retry.',
+      );
+    } on SocketException {
+      throw const PosApiException(
+        'Could not reach the staging sign-in service. Check your connection.',
+      );
+    } on HttpException {
+      throw const PosApiException(
+        'The staging sign-in connection was interrupted. Retry.',
+      );
+    } on IOException {
+      throw const PosApiException(
+        'A network error interrupted sign-in. Retry when connected.',
+      );
+    } on FormatException {
+      throw const PosApiException('The sign-in response could not be read.');
+    }
   }
 
   Future<SalesPage> getSales({bool forceRefresh = false}) {

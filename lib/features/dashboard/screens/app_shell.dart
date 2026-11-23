@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/api/pos_api_service.dart';
+import '../../../core/local/local_workspace.dart';
 import '../../items/screens/items_screen.dart';
 import '../../sales/screens/sales_screen.dart';
 import '../../stock/screens/stock_screen.dart';
 import 'dashboard_screen.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.apiService});
+  const AppShell({
+    super.key,
+    required this.apiService,
+    this.onReauthenticate,
+    this.localWorkspace,
+  });
 
   final PosApiService apiService;
+  final VoidCallback? onReauthenticate;
+  final LocalWorkspace? localWorkspace;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -21,6 +29,8 @@ class _AppShellState extends State<AppShell> {
   final _dashboardKey = GlobalKey<DashboardScreenState>();
   final _itemsKey = GlobalKey<ItemsScreenState>();
   final _stockKey = GlobalKey<StockScreenState>();
+  late final LocalWorkspace _workspace =
+      widget.localWorkspace ?? (LocalWorkspace()..load());
 
   @override
   void initState() {
@@ -33,17 +43,20 @@ class _AppShellState extends State<AppShell> {
       ),
       SalesScreen(
         apiService: widget.apiService,
-        onTokenConnected: _refreshConnectedScreens,
+        onReauthenticate: widget.onReauthenticate,
       ),
       StockScreen(
         key: _stockKey,
         apiService: widget.apiService,
-        onConnect: () => _select(1),
+        onConnect: widget.onReauthenticate ?? () => _select(1),
+        workspace: _workspace,
+        onOpenLocalItems: () => _select(3),
       ),
       ItemsScreen(
         key: _itemsKey,
         apiService: widget.apiService,
-        onConnect: () => _select(1),
+        onConnect: widget.onReauthenticate ?? () => _select(1),
+        workspace: _workspace,
       ),
     ];
   }
@@ -84,11 +97,5 @@ class _AppShellState extends State<AppShell> {
   void _select(int index) {
     if (index == _selectedIndex) return;
     setState(() => _selectedIndex = index);
-  }
-
-  void _refreshConnectedScreens() {
-    _itemsKey.currentState?.refresh();
-    _stockKey.currentState?.refresh();
-    _dashboardKey.currentState?.refreshSales(forceRefresh: false);
   }
 }

@@ -10,11 +10,11 @@ class SalesScreen extends StatefulWidget {
   const SalesScreen({
     super.key,
     required this.apiService,
-    this.onTokenConnected,
+    this.onReauthenticate,
   });
 
   final PosApiService apiService;
-  final VoidCallback? onTokenConnected;
+  final VoidCallback? onReauthenticate;
 
   @override
   State<SalesScreen> createState() => _SalesScreenState();
@@ -41,19 +41,6 @@ class _SalesScreenState extends State<SalesScreen> {
     setState(() {
       _sales = widget.apiService.getSales(forceRefresh: true);
     });
-  }
-
-  Future<void> _configureToken() async {
-    final token = await showDialog<String>(
-      context: context,
-      builder: (_) => const _TokenDialog(),
-    );
-    final normalizedToken = token?.trim();
-    if (normalizedToken != null && normalizedToken.isNotEmpty && mounted) {
-      widget.apiService.setToken(normalizedToken);
-      _retry();
-      widget.onTokenConnected?.call();
-    }
   }
 
   @override
@@ -97,7 +84,7 @@ class _SalesScreenState extends State<SalesScreen> {
                       return _ErrorState(
                         error: snapshot.error,
                         onRetry: _retry,
-                        onConfigureToken: _configureToken,
+                        onReauthenticate: widget.onReauthenticate,
                       );
                     }
                     final page = snapshot.data!;
@@ -127,50 +114,6 @@ class _SalesScreenState extends State<SalesScreen> {
         ),
       ],
     ),
-  );
-}
-
-class _TokenDialog extends StatefulWidget {
-  const _TokenDialog();
-
-  @override
-  State<_TokenDialog> createState() => _TokenDialogState();
-}
-
-class _TokenDialogState extends State<_TokenDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Configure staging access'),
-    content: TextField(
-      controller: _controller,
-      autofocus: true,
-      obscureText: true,
-      autocorrect: false,
-      enableSuggestions: false,
-      decoration: const InputDecoration(
-        labelText: 'Bearer token',
-        helperText: 'Used only for this app session. It is not saved.',
-        border: OutlineInputBorder(),
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: () => Navigator.pop(context, _controller.text),
-        child: const Text('Connect'),
-      ),
-    ],
   );
 }
 
@@ -233,12 +176,12 @@ class _ErrorState extends StatelessWidget {
   const _ErrorState({
     required this.error,
     required this.onRetry,
-    required this.onConfigureToken,
+    required this.onReauthenticate,
   });
 
   final Object? error;
   final VoidCallback onRetry;
-  final VoidCallback onConfigureToken;
+  final VoidCallback? onReauthenticate;
 
   @override
   Widget build(BuildContext context) {
@@ -274,11 +217,12 @@ class _ErrorState extends StatelessWidget {
               style: const TextStyle(color: Color(0xFF69756E), height: 1.4),
             ),
             const SizedBox(height: 14),
-            if (apiError?.requiresToken == true) ...[
+            if ((apiError?.requiresToken == true || isUnauthorized) &&
+                onReauthenticate != null) ...[
               FilledButton.icon(
-                onPressed: onConfigureToken,
-                icon: const Icon(Icons.key_outlined),
-                label: const Text('Configure token'),
+                onPressed: onReauthenticate,
+                icon: const Icon(Icons.login),
+                label: const Text('Sign in again'),
               ),
               const SizedBox(height: 8),
             ],

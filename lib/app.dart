@@ -1,10 +1,31 @@
 import 'package:flutter/material.dart';
 
 import 'core/api/pos_api_service.dart';
+import 'core/local/local_workspace.dart';
+import 'core/models/authenticated_user.dart';
 import 'features/dashboard/screens/app_shell.dart';
+import 'features/auth/screens/login_screen.dart';
 
-class PosMonitoringApp extends StatelessWidget {
-  const PosMonitoringApp({super.key});
+class PosMonitoringApp extends StatefulWidget {
+  const PosMonitoringApp({super.key, this.apiService});
+
+  final PosApiService? apiService;
+
+  @override
+  State<PosMonitoringApp> createState() => _PosMonitoringAppState();
+}
+
+class _PosMonitoringAppState extends State<PosMonitoringApp> {
+  late final PosApiService _apiService = widget.apiService ?? PosApiService();
+  late final LocalWorkspace _localWorkspace = LocalWorkspace()..load();
+  AuthenticatedUser? _user;
+
+  void _onAuthenticated(AuthenticatedUser user) => setState(() => _user = user);
+
+  void _reauthenticate() {
+    _apiService.setToken('');
+    setState(() => _user = null);
+  }
 
   static const _green = Color(0xFF17834B);
 
@@ -34,7 +55,16 @@ class PosMonitoringApp extends StatelessWidget {
           ),
         ),
       ),
-      home: AppShell(apiService: PosApiService()),
+      home: _user == null
+          ? LoginScreen(
+              apiService: _apiService,
+              onAuthenticated: _onAuthenticated,
+            )
+          : AppShell(
+              apiService: _apiService,
+              onReauthenticate: _reauthenticate,
+              localWorkspace: _localWorkspace,
+            ),
     );
   }
 }

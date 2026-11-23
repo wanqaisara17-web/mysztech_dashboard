@@ -1,39 +1,58 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pos_monitoring_app/app.dart';
 import 'package:pos_monitoring_app/core/api/pos_api_service.dart';
-import 'package:pos_monitoring_app/core/models/sales_page.dart';
-import 'package:pos_monitoring_app/core/models/item.dart';
-import 'package:pos_monitoring_app/core/models/inventory_stock.dart';
+import 'package:pos_monitoring_app/core/local/local_workspace.dart';
+import 'package:pos_monitoring_app/core/models/authenticated_user.dart';
 import 'package:pos_monitoring_app/core/models/inventory_movement.dart';
+import 'package:pos_monitoring_app/core/models/inventory_stock.dart';
+import 'package:pos_monitoring_app/core/models/item.dart';
+import 'package:pos_monitoring_app/core/models/sales_page.dart';
 import 'package:pos_monitoring_app/features/dashboard/screens/app_shell.dart';
 import 'package:pos_monitoring_app/features/sales/screens/sales_screen.dart';
 
 class _FakeApiService implements PosApiService {
-  _FakeApiService(
-    this.result, {
-    this.onToken,
-    this.items = const [],
-    this.stock = const [],
-  });
+  _FakeApiService({this.items = const [], this.stock = const []});
 
-  final Future<SalesPage> Function() result;
-  final void Function(String)? onToken;
   final List<PosItem> items;
   final List<InventoryStock> stock;
   String? token;
+  String? loginEmail;
+  String? loginPassword;
+  String? licenseKey;
   int refreshCount = 0;
+  bool unauthorized = false;
 
   @override
-  Future<SalesPage> getSales({bool forceRefresh = false}) {
+  Future<AuthenticatedUser> login({
+    required String email,
+    required String password,
+    required String licenseKey,
+  }) async {
+    loginEmail = email;
+    loginPassword = password;
+    this.licenseKey = licenseKey;
+    setToken('session-token');
+    return AuthenticatedUser(name: 'Demo User', email: email);
+  }
+
+  @override
+  Future<SalesPage> getSales({bool forceRefresh = false}) async {
     if (forceRefresh) refreshCount++;
-    return result();
+    if (unauthorized) {
+      throw const PosApiException('Your token was rejected.', statusCode: 401);
+    }
+    return SalesPage.fromJson({
+      'is_success': true,
+      'status_code': 200,
+      'data': <dynamic>[],
+      'paginator': {'total': 0},
+    });
   }
 
   @override
-  void setToken(String value) {
-    token = value;
-    onToken?.call(value);
-  }
+  void setToken(String value) => token = value;
 
   @override
   Future<List<PosItem>> getItems({bool forceRefresh = false}) async => items;
@@ -57,218 +76,62 @@ class _FakeApiService implements PosApiService {
 }
 
 void main() {
-  testWidgets('sales screen shows documented empty response state', (
+  testWidgets('login sends email, password and license key then opens app', (
     tester,
   ) async {
-    final api = _FakeApiService(
-      () async => SalesPage.fromJson({
-        'is_success': true,
-        'status_code': 200,
-        'data': <dynamic>[],
-        'paginator': {
-          'total': '0',
-          'count': '0',
-          'lastPage': '0',
-          'perPage': '15',
-        },
-      }),
-    );
+    final api = _FakeApiService();
+    await tester.pumpWidget(PosMonitoringApp(apiService: api));
 
+    expect(find.text('Mysztech Store Assistant'), findsOneWidget);
+    expect(find.text('Sign in to your POS staging account'), findsOneWidget);
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), 'staff@example.com');
+    await tester.enterText(fields.at(1), 'private-password');
+    await tester.enterText(fields.at(2), '66666666666666666666');
+    expect(
+      tester.widget<TextFormField>(fields.at(2)).controller!.text,
+      '66666-66666-66666-66666',
+    );
+    await tester.tap(find.text('Sign in'));
+    await tester.pumpAndSettle();
+
+    expect(api.loginEmail, 'staff@example.com');
+    expect(api.loginPassword, 'private-password');
+    expect(api.licenseKey, '66666-66666-66666-66666');
+    expect(api.token, 'session-token');
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('Overview'), findsOneWidget);
+  });
+
+  testWidgets('Sales shows empty response returned by the API', (tester) async {
+    final api = _FakeApiService();
     await tester.pumpWidget(MaterialApp(home: SalesScreen(apiService: api)));
     await tester.pumpAndSettle();
 
     expect(find.text('No sales records yet'), findsOneWidget);
-    expect(find.textContaining('API reports 0 total sales'), findsOneWidget);
   });
 
-  testWidgets('sales screen exposes retry for an authentication error', (
-    tester,
-  ) async {
-    final api = _FakeApiService(
-      () async => throw const PosApiException(
-        'Your token was rejected. Supply a currently authorized staging token.',
-        statusCode: 401,
+  testWidgets('expired session offers sign in again', (tester) async {
+    final api = _FakeApiService()..unauthorized = true;
+    var reauthenticated = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SalesScreen(
+          apiService: api,
+          onReauthenticate: () => reauthenticated = true,
+        ),
       ),
     );
-
-    await tester.pumpWidget(MaterialApp(home: SalesScreen(apiService: api)));
     await tester.pumpAndSettle();
-
     expect(find.text('Authentication required'), findsOneWidget);
-    expect(find.text('Retry'), findsOneWidget);
+    await tester.tap(find.text('Sign in again'));
+    expect(reauthenticated, isTrue);
   });
 
-  testWidgets(
-    'missing token can be configured in a masked session-only field',
-    (tester) async {
-      final api = _FakeApiService(
-        () async => throw const PosApiException(
-          'Enter an authorized staging token to load sales.',
-          requiresToken: true,
-        ),
-      );
-
-      await tester.pumpWidget(MaterialApp(home: SalesScreen(apiService: api)));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Configure token'));
-      await tester.pumpAndSettle();
-
-      final field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.obscureText, isTrue);
-      expect(
-        find.text('Used only for this app session. It is not saved.'),
-        findsOneWidget,
-      );
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-    },
-  );
-
-  testWidgets(
-    'Connect stores session token and refreshes Sales to the empty state',
-    (tester) async {
-      var connected = false;
-      final api = _FakeApiService(() async {
-        if (!connected) {
-          throw const PosApiException(
-            'Enter an authorized staging token.',
-            requiresToken: true,
-          );
-        }
-        return SalesPage.fromJson({
-          'is_success': true,
-          'status_code': 200,
-          'data': <dynamic>[],
-          'paginator': {'total': 0},
-        });
-      }, onToken: (_) => connected = true);
-
-      await tester.pumpWidget(MaterialApp(home: SalesScreen(apiService: api)));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Configure token'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Bearer local-test-token');
-      await tester.tap(find.text('Connect'));
-      await tester.pumpAndSettle();
-
-      expect(api.token, 'Bearer local-test-token');
-      expect(api.refreshCount, 1);
-      expect(find.text('No sales records yet'), findsOneWidget);
-    },
-  );
-
-  testWidgets('connecting in Sales refreshes the cached Dashboard summary', (
-    tester,
-  ) async {
-    var connected = false;
-    final api = _FakeApiService(() async {
-      if (!connected) {
-        throw const PosApiException(
-          'Enter an authorized staging token.',
-          requiresToken: true,
-        );
-      }
-      return SalesPage.fromJson({
-        'is_success': true,
-        'status_code': 200,
-        'data': <dynamic>[],
-        'paginator': {'total': 0},
-      });
-    }, onToken: (_) => connected = true);
-
-    await tester.pumpWidget(MaterialApp(home: AppShell(apiService: api)));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(
-        of: find.byType(NavigationBar),
-        matching: find.text('Sales'),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Configure token'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'local-test-token');
-    await tester.tap(find.text('Connect'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(
-        of: find.byType(NavigationBar),
-        matching: find.text('Dashboard'),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Sales data unavailable'), findsNothing);
-    expect(find.text('0'), findsNWidgets(2));
-  });
-
-  testWidgets(
-    'navigation includes Dashboard Sales Stock and Items',
-    (tester) async {
-      final api = _FakeApiService(
-        () async => SalesPage.fromJson({
-          'data': <dynamic>[],
-          'paginator': {'total': '0'},
-        }),
-      );
-
-      await tester.pumpWidget(MaterialApp(home: AppShell(apiService: api)));
-
-      expect(find.text('Dashboard'), findsOneWidget);
-      expect(find.text('Sales'), findsAtLeastNWidgets(1));
-      expect(find.text('Stock'), findsOneWidget);
-      expect(find.text('Items'), findsOneWidget);
-      await tester.tap(
-        find.descendant(
-          of: find.byType(NavigationBar),
-          matching: find.text('Stock'),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('No inventory records returned.'), findsOneWidget);
-    },
-  );
-
-  testWidgets('Stock marks records at the API threshold as low stock', (
+  testWidgets('Items supports search, details, and local label action', (
     tester,
   ) async {
     final api = _FakeApiService(
-      () async => SalesPage.fromJson({
-        'data': <dynamic>[],
-        'paginator': {'total': 0},
-      }),
-      stock: const [
-        InventoryStock(
-          inventoryId: '9',
-          itemName: 'Green Tea',
-          quantity: 2,
-          lowStockThreshold: 3,
-          outletId: '1',
-        ),
-      ],
-    );
-    await tester.pumpWidget(MaterialApp(home: AppShell(apiService: api)));
-    await tester.tap(
-      find.descendant(
-        of: find.byType(NavigationBar),
-        matching: find.text('Stock'),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Green Tea'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
-    expect(find.text('Low stock · at or below API threshold'), findsOneWidget);
-  });
-
-  testWidgets('Items supports search, item details, and local label action', (
-    tester,
-  ) async {
-    final api = _FakeApiService(
-      () async => SalesPage.fromJson({
-        'data': <dynamic>[],
-        'paginator': {'total': 0},
-      }),
       items: const [
         PosItem(
           id: '4',
@@ -297,7 +160,84 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Item details'), findsOneWidget);
     expect(find.text('Drinks'), findsOneWidget);
-    expect(find.text('123456'), findsOneWidget);
     expect(find.text('Create local label'), findsOneWidget);
+  });
+
+  testWidgets('Stock marks quantities at the API threshold as low stock', (
+    tester,
+  ) async {
+    final api = _FakeApiService(
+      stock: const [
+        InventoryStock(
+          inventoryId: '9',
+          itemName: 'Green Tea',
+          quantity: 2,
+          lowStockThreshold: 3,
+          outletId: '1',
+        ),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp(home: AppShell(apiService: api)));
+    await tester.tap(find.text('Stock').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Green Tea'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.textContaining('at or below API threshold'), findsOneWidget);
+  });
+
+  testWidgets('local items stay separate and appear in on-device stock', (
+    tester,
+  ) async {
+    const localChannel = MethodChannel('test/local_workspace');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(localChannel, (call) async {
+          if (call.method == 'loadWorkspace') return '[]';
+          if (call.method == 'saveWorkspace') return true;
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(localChannel, null),
+    );
+    final workspace = LocalWorkspace(channel: localChannel);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          apiService: _FakeApiService(),
+          localWorkspace: workspace,
+        ),
+      ),
+    );
+    await tester.tap(find.text('Items').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('On-device'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byTooltip('Add local item'));
+    await tester.pumpAndSettle();
+
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.at(0), 'Local Lemon');
+    await tester.enterText(fields.at(1), 'LEM-1');
+    await tester.enterText(fields.at(4), '1.25');
+    await tester.enterText(fields.at(5), '2');
+    await tester.enterText(fields.at(6), '3');
+    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('Save on this device'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('LOCAL ONLY · Not synced to POS'), findsOneWidget);
+    expect(find.text('Local Lemon'), findsOneWidget);
+    await tester.tap(find.text('Stock').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('On-device'));
+    await tester.pumpAndSettle();
+    expect(find.text('Local Lemon'), findsOneWidget);
+    expect(find.textContaining('Low local stock'), findsOneWidget);
+    expect(
+      find.textContaining('On-device counts do not sync to POS'),
+      findsOneWidget,
+    );
   });
 }

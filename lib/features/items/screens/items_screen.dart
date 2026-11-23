@@ -1,20 +1,25 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/api/pos_api_service.dart';
+import '../../../core/local/local_workspace.dart';
 import '../../../core/models/item.dart';
+import '../../../core/models/local_product.dart';
 import '../../../core/widgets/section_card.dart';
 import '../../../shared/widgets/page_header.dart';
 import 'local_label_screen.dart';
+import 'local_product_form_screen.dart';
 
 class ItemsScreen extends StatefulWidget {
   const ItemsScreen({
     super.key,
     required this.apiService,
     required this.onConnect,
+    required this.workspace,
   });
 
   final PosApiService apiService;
   final VoidCallback onConnect;
+  final LocalWorkspace workspace;
 
   @override
   State<ItemsScreen> createState() => ItemsScreenState();
@@ -24,6 +29,7 @@ class ItemsScreenState extends State<ItemsScreen> {
   late Future<List<PosItem>> _items;
   final _searchController = TextEditingController();
   String _query = '';
+  bool _showLocal = false;
 
   @override
   void initState() {
@@ -37,9 +43,15 @@ class ItemsScreenState extends State<ItemsScreen> {
     super.dispose();
   }
 
-  void refresh() => setState(() {
-    _items = widget.apiService.getItems(forceRefresh: true);
-  });
+  void refresh() {
+    if (_showLocal) {
+      setState(() {});
+    } else {
+      setState(() {
+        _items = widget.apiService.getItems(forceRefresh: true);
+      });
+    }
+  }
 
   void _refresh() => refresh();
 
@@ -80,7 +92,25 @@ class ItemsScreenState extends State<ItemsScreen> {
                       tooltip: 'Create local label',
                       icon: const Icon(Icons.local_offer_outlined),
                     ),
+                    if (_showLocal)
+                      IconButton(
+                        onPressed: _openNewLocalItem,
+                        tooltip: 'Add local item',
+                        icon: const Icon(Icons.add),
+                      ),
                   ],
+                ),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('POS catalog')),
+                    ButtonSegment(value: true, label: Text('On-device')),
+                  ],
+                  selected: {_showLocal},
+                  onSelectionChanged: (selection) => setState(() {
+                    _showLocal = selection.first;
+                    _query = '';
+                    _searchController.clear();
+                  }),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -103,39 +133,84 @@ class ItemsScreenState extends State<ItemsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                FutureBuilder<List<PosItem>>(
-                  future: _items,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const _ItemsLoading();
-                    }
-                    if (snapshot.hasError) {
-                      return _ItemsError(
-                        error: snapshot.error,
-                        onRetry: _refresh,
-                        onConnect: widget.onConnect,
-                      );
-                    }
-                    final items = (snapshot.data ?? const <PosItem>[])
-                        .where((item) => _matches(item, _query))
-                        .toList(growable: false);
-                    if (items.isEmpty) {
-                      return _ItemsEmpty(hasSearch: _query.isNotEmpty);
-                    }
-                    return Column(
-                      children: [
-                        for (final item in items)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _ItemTile(
-                              item: item,
-                              onTap: () => _openItem(item),
+                if (_showLocal)
+                  AnimatedBuilder(
+                    animation: widget.workspace,
+                    builder: (context, _) {
+                      if (!widget.workspace.isLoaded) {
+                        return const _ItemsLoading();
+                      }
+                      final products = widget.workspace.products
+                          .where((product) => _matchesLocal(product, _query))
+                          .toList(growable: false);
+                      if (products.isEmpty) {
+                        return _LocalItemsEmpty(
+                          hasSearch: _query.isNotEmpty,
+                          onAdd: _openNewLocalItem,
+                        );
+                      }
+                      return Column(
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 10),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'LOCAL ONLY · Not synced to POS',
+                                style: TextStyle(
+                                  color: Color(0xFF69756E),
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                           ),
-                      ],
-                    );
-                  },
-                ),
+                          for (final product in products)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _LocalProductTile(
+                                product: product,
+                                onEdit: () => _editLocalItem(product),
+                                onLabel: () => _openLocalLabel(product),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  )
+                else
+                  FutureBuilder<List<PosItem>>(
+                    future: _items,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const _ItemsLoading();
+                      }
+                      if (snapshot.hasError) {
+                        return _ItemsError(
+                          error: snapshot.error,
+                          onRetry: _refresh,
+                          onConnect: widget.onConnect,
+                        );
+                      }
+                      final items = (snapshot.data ?? const <PosItem>[])
+                          .where((item) => _matches(item, _query))
+                          .toList(growable: false);
+                      if (items.isEmpty) {
+                        return _ItemsEmpty(hasSearch: _query.isNotEmpty);
+                      }
+                      return Column(
+                        children: [
+                          for (final item in items)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _ItemTile(
+                                item: item,
+                                onTap: () => _openItem(item),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
               ],
             ),
           ),
@@ -150,6 +225,47 @@ class ItemsScreenState extends State<ItemsScreen> {
       (item.sku?.toLowerCase().contains(query) ?? false) ||
       (item.barcode?.toLowerCase().contains(query) ?? false);
 
+  bool _matchesLocal(LocalProduct item, String query) =>
+      query.isEmpty ||
+      item.name.toLowerCase().contains(query) ||
+      (item.sku?.toLowerCase().contains(query) ?? false) ||
+      (item.barcode?.toLowerCase().contains(query) ?? false) ||
+      (item.category?.toLowerCase().contains(query) ?? false);
+
+  Future<void> _openNewLocalItem() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => LocalProductFormScreen(workspace: widget.workspace),
+    ),
+  );
+
+  Future<void> _editLocalItem(LocalProduct product) => Navigator.of(context)
+      .push(
+        MaterialPageRoute<void>(
+          builder: (_) => LocalProductFormScreen(
+            workspace: widget.workspace,
+            product: product,
+          ),
+        ),
+      );
+
+  Future<void> _openLocalLabel(LocalProduct product) =>
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => LocalLabelScreen(
+            item: PosItem(
+              id: product.id,
+              name: product.name,
+              sku: product.sku,
+              barcode: product.barcode,
+              price: product.price,
+              categoryId: null,
+              categoryName: product.category,
+              inventoryId: null,
+            ),
+          ),
+        ),
+      );
+
   Future<void> _openItem(PosItem item) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -161,6 +277,106 @@ class ItemsScreenState extends State<ItemsScreen> {
       ),
     );
   }
+}
+
+class _LocalProductTile extends StatelessWidget {
+  const _LocalProductTile({
+    required this.product,
+    required this.onEdit,
+    required this.onLabel,
+  });
+  final LocalProduct product;
+  final VoidCallback onEdit;
+  final VoidCallback onLabel;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onEdit,
+    child: SectionCard(
+      padding: const EdgeInsets.all(15),
+      child: Row(
+        children: [
+          const Icon(Icons.inventory_2_outlined, color: Color(0xFF17834B)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  product.name,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  [
+                    'LOCAL',
+                    if (product.sku?.isNotEmpty == true) 'SKU ${product.sku}',
+                    if (product.barcode?.isNotEmpty == true)
+                      'Barcode ${product.barcode}',
+                    if (product.category?.isNotEmpty == true) product.category!,
+                  ].join(' · '),
+                  style: const TextStyle(
+                    color: Color(0xFF69756E),
+                    fontSize: 12,
+                  ),
+                ),
+                if (product.quantity != null)
+                  Text(
+                    'On device: ${product.quantity}${product.isLowStock ? ' · Low local stock' : ''}',
+                    style: TextStyle(
+                      color: product.isLowStock
+                          ? const Color(0xFFB54735)
+                          : const Color(0xFF69756E),
+                      fontSize: 12,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onLabel,
+            tooltip: 'Preview local label',
+            icon: const Icon(Icons.local_offer_outlined),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _LocalItemsEmpty extends StatelessWidget {
+  const _LocalItemsEmpty({required this.hasSearch, required this.onAdd});
+  final bool hasSearch;
+  final VoidCallback onAdd;
+  @override
+  Widget build(BuildContext context) => SectionCard(
+    child: Padding(
+      padding: const EdgeInsets.all(22),
+      child: Column(
+        children: [
+          Text(
+            hasSearch
+                ? 'No local items match this search.'
+                : 'Your on-device catalog is empty.',
+            textAlign: TextAlign.center,
+          ),
+          if (!hasSearch) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Add products and stock notes for local use. They will not be sent to the POS.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF69756E)),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('Add local item'),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 class _ItemTile extends StatelessWidget {
@@ -272,6 +488,8 @@ class _ItemsError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final apiError = error is PosApiException ? error as PosApiException : null;
+    final requiresSignIn =
+        apiError?.requiresToken == true || apiError?.isUnauthorized == true;
     return SectionCard(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -299,11 +517,11 @@ class _ItemsError extends StatelessWidget {
               style: const TextStyle(color: Color(0xFF69756E)),
             ),
             const SizedBox(height: 12),
-            if (apiError?.requiresToken == true)
+            if (requiresSignIn)
               FilledButton.icon(
                 onPressed: onConnect,
-                icon: const Icon(Icons.key),
-                label: const Text('Connect in Sales'),
+                icon: const Icon(Icons.login),
+                label: const Text('Sign in again'),
               ),
             OutlinedButton.icon(
               onPressed: onRetry,

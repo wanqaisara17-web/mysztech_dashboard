@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/api/pos_api_service.dart';
+import '../../../core/local/local_workspace.dart';
 import '../../../core/models/inventory_movement.dart';
 import '../../../core/models/inventory_stock.dart';
+import '../../../core/models/local_product.dart';
 import '../../../core/widgets/section_card.dart';
 import '../../../shared/widgets/page_header.dart';
 
@@ -11,9 +13,13 @@ class StockScreen extends StatefulWidget {
     super.key,
     required this.apiService,
     required this.onConnect,
+    required this.workspace,
+    required this.onOpenLocalItems,
   });
   final PosApiService apiService;
   final VoidCallback onConnect;
+  final LocalWorkspace workspace;
+  final VoidCallback onOpenLocalItems;
 
   @override
   State<StockScreen> createState() => StockScreenState();
@@ -22,7 +28,7 @@ class StockScreen extends StatefulWidget {
 class StockScreenState extends State<StockScreen> {
   late Future<List<InventoryStock>> _stock;
   Future<List<InventoryMovement>>? _movements;
-  bool _showMovements = false;
+  String _view = 'inventory';
 
   @override
   void initState() {
@@ -32,11 +38,11 @@ class StockScreenState extends State<StockScreen> {
 
   void refresh() {
     setState(() {
-      if (_showMovements) {
+      if (_view == 'movements') {
         _movements = widget.apiService.getInventoryMovements(
           forceRefresh: true,
         );
-      } else {
+      } else if (_view == 'inventory') {
         _stock = widget.apiService.getInventoryStock(forceRefresh: true);
       }
     });
@@ -44,10 +50,12 @@ class StockScreenState extends State<StockScreen> {
 
   void _refresh() => refresh();
 
-  void _selectMovements(bool selected) {
+  void _selectView(String view) {
     setState(() {
-      _showMovements = selected;
-      if (selected) _movements ??= widget.apiService.getInventoryMovements();
+      _view = view;
+      if (view == 'movements') {
+        _movements ??= widget.apiService.getInventoryMovements();
+      }
     });
   }
 
@@ -82,24 +90,69 @@ class StockScreenState extends State<StockScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(
-                      value: false,
-                      label: Text('Inventory'),
-                      icon: Icon(Icons.inventory_2_outlined),
-                    ),
-                    ButtonSegment(
-                      value: true,
-                      label: Text('Movements'),
-                      icon: Icon(Icons.swap_vert),
-                    ),
-                  ],
-                  selected: {_showMovements},
-                  onSelectionChanged: (value) => _selectMovements(value.first),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'inventory',
+                        label: Text('Inventory'),
+                        icon: Icon(Icons.inventory_2_outlined),
+                      ),
+                      ButtonSegment(
+                        value: 'movements',
+                        label: Text('Movements'),
+                        icon: Icon(Icons.swap_vert),
+                      ),
+                      ButtonSegment(
+                        value: 'local',
+                        label: Text('On-device'),
+                        icon: Icon(Icons.phone_android),
+                      ),
+                    ],
+                    selected: {_view},
+                    onSelectionChanged: (value) => _selectView(value.first),
+                  ),
                 ),
                 const SizedBox(height: 12),
-                if (_showMovements)
+                if (_view == 'local')
+                  AnimatedBuilder(
+                    animation: widget.workspace,
+                    builder: (context, _) {
+                      if (!widget.workspace.isLoaded) return const _Loading();
+                      final products = widget.workspace.products
+                          .where((product) => product.quantity != null)
+                          .toList(growable: false);
+                      if (products.isEmpty) {
+                        return _LocalStockEmpty(
+                          onOpenItems: widget.onOpenLocalItems,
+                        );
+                      }
+                      return Column(
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 10),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'LOCAL ONLY · On-device counts do not sync to POS',
+                                style: TextStyle(
+                                  color: Color(0xFF69756E),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ),
+                          for (final product in products)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _LocalStockTile(product: product),
+                            ),
+                        ],
+                      );
+                    },
+                  )
+                else if (_view == 'movements')
                   FutureBuilder<List<InventoryMovement>>(
                     future: _movements,
                     builder: (context, snapshot) {
@@ -327,6 +380,87 @@ class _MovementTile extends StatelessWidget {
 
 String _quantity(num value) => value.toString();
 
+class _LocalStockTile extends StatelessWidget {
+  const _LocalStockTile({required this.product});
+  final LocalProduct product;
+
+  @override
+  Widget build(BuildContext context) => SectionCard(
+    padding: const EdgeInsets.all(16),
+    child: Row(
+      children: [
+        Icon(
+          product.isLowStock
+              ? Icons.warning_amber_rounded
+              : Icons.inventory_2_outlined,
+          color: const Color(0xFF17834B),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product.name,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                'On-device count${product.isLowStock ? ' · Low local stock' : ''}',
+                style: TextStyle(
+                  color: product.isLowStock
+                      ? const Color(0xFFB54735)
+                      : const Color(0xFF69756E),
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              _quantity(product.quantity!),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+            ),
+            if (product.lowStockThreshold != null)
+              Text(
+                'Min ${_quantity(product.lowStockThreshold!)}',
+                style: const TextStyle(color: Color(0xFF69756E), fontSize: 11),
+              ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _LocalStockEmpty extends StatelessWidget {
+  const _LocalStockEmpty({required this.onOpenItems});
+  final VoidCallback onOpenItems;
+  @override
+  Widget build(BuildContext context) => SectionCard(
+    child: Padding(
+      padding: const EdgeInsets.all(22),
+      child: Column(
+        children: [
+          const Text(
+            'No local stock notes yet. Add an on-device item with an on-hand count to track it here.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: onOpenItems,
+            icon: const Icon(Icons.category_outlined),
+            label: const Text('Open local catalog'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _Loading extends StatelessWidget {
   const _Loading();
   @override
@@ -362,6 +496,8 @@ class _StockError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final apiError = error is PosApiException ? error as PosApiException : null;
+    final requiresSignIn =
+        apiError?.requiresToken == true || apiError?.isUnauthorized == true;
     return SectionCard(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -389,11 +525,11 @@ class _StockError extends StatelessWidget {
               style: const TextStyle(color: Color(0xFF69756E)),
             ),
             const SizedBox(height: 12),
-            if (apiError?.requiresToken == true)
+            if (requiresSignIn)
               FilledButton.icon(
                 onPressed: onConnect,
-                icon: const Icon(Icons.key),
-                label: const Text('Connect in Sales'),
+                icon: const Icon(Icons.login),
+                label: const Text('Sign in again'),
               ),
             OutlinedButton.icon(
               onPressed: onRetry,
