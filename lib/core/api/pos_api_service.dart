@@ -11,10 +11,7 @@ import '../models/sales_page.dart';
 
 const posApiProductionUrl = 'https://mysztech.com/api';
 const posApiStagingUrl = 'https://mts-pos-staging.laravel.cloud/api';
-const posApiBaseUrl = String.fromEnvironment(
-  'POS_API_BASE_URL',
-  defaultValue: posApiStagingUrl,
-);
+const posApiBaseUrl = kReleaseMode ? posApiProductionUrl : posApiStagingUrl;
 
 class PosApiException implements Exception {
   const PosApiException(
