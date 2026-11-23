@@ -1,11 +1,11 @@
 {
-    "name": "pos_monitoring_app",
-    "short_name": "pos_monitoring_app",
+    "name": "Mysztech Store Assistant",
+    "short_name": "Mysztech Assistant",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Mysztech Store Assistant POS monitoring app",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
