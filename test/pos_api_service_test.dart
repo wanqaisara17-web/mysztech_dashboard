@@ -5,6 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_monitoring_app/core/api/pos_api_service.dart';
 
 void main() {
+  test('the default API base URL targets staging', () {
+    final api = PosApiService();
+
+    try {
+      expect(api.baseUrl, posApiStagingUrl);
+    } finally {
+      api.close();
+    }
+  });
+
   test('setting token after missing-token state makes fresh authorized sales request', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     var requestCount = 0;
@@ -113,7 +123,7 @@ void main() {
               'tracking_enabled': true,
             },
           ],
-          '/api/v2/category/category-2' => {
+          '/api/v2/categories/category-2' => {
             'id': 'category-2',
             'name': 'Drinks',
           },

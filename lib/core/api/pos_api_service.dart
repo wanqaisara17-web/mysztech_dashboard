@@ -9,6 +9,13 @@ import '../models/inventory_stock.dart';
 import '../models/item.dart';
 import '../models/sales_page.dart';
 
+const posApiProductionUrl = 'https://mysztech.com/api';
+const posApiStagingUrl = 'https://mts-pos-staging.laravel.cloud/api';
+const posApiBaseUrl = String.fromEnvironment(
+  'POS_API_BASE_URL',
+  defaultValue: posApiStagingUrl,
+);
+
 class PosApiException implements Exception {
   const PosApiException(
     this.message, {
@@ -29,7 +36,7 @@ class PosApiException implements Exception {
 class PosApiService {
   PosApiService({
     HttpClient? client,
-    this.baseUrl = 'https://mts-pos-staging.laravel.cloud/api',
+    this.baseUrl = posApiBaseUrl,
     String? token,
   }) : _client = client ?? HttpClient(),
        _token = token ?? '';
@@ -144,7 +151,7 @@ class PosApiService {
     return _categoryNames.putIfAbsent(id, () async {
       try {
         final document = await _getDocument(
-          '/v2/category/${Uri.encodeComponent(id)}',
+          '/v2/categories/${Uri.encodeComponent(id)}',
         );
         final data = document['data'];
         return data is Map<String, dynamic> ? data['name']?.toString() : null;
@@ -257,7 +264,7 @@ class PosApiService {
     '/v2/inventory-outlet/list' => 'inventory',
     '/v2/inventory-transactions/list' => 'inventory movements',
     _ when path.startsWith('/v2/items/') => 'item details',
-    _ when path.startsWith('/v2/category/') => 'item category',
+    _ when path.startsWith('/v2/categories/') => 'item category',
     _ => 'staging API',
   };
 
