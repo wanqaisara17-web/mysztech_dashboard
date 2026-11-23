@@ -5,11 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_monitoring_app/core/api/pos_api_service.dart';
 
 void main() {
-  test('the default API base URL targets staging', () {
+  test('the default API base URL targets production', () {
     final api = PosApiService();
 
     try {
-      expect(api.baseUrl, posApiStagingUrl);
+      expect(api.baseUrl, posApiProductionUrl);
     } finally {
       api.close();
     }

@@ -83,7 +83,7 @@ void main() {
     await tester.pumpWidget(PosMonitoringApp(apiService: api));
 
     expect(find.text('Mysztech Store Assistant'), findsOneWidget);
-    expect(find.text('Sign in to your POS staging account'), findsOneWidget);
+    expect(find.text('Sign in to your POS production account'), findsOneWidget);
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), 'staff@example.com');
     await tester.enterText(fields.at(1), 'private-password');
