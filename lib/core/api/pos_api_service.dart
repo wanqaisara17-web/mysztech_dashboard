@@ -12,7 +12,8 @@ import '../models/sales_page.dart';
 
 const posApiProductionUrl = 'https://mysztech.com/api';
 const posApiStagingUrl = 'https://mts-pos-staging.laravel.cloud/api';
-const posApiBaseUrl = kReleaseMode ? posApiProductionUrl : posApiStagingUrl;
+// Use the live POS API in both debug and release builds.
+const posApiBaseUrl = posApiProductionUrl;
 
 class PosApiException implements Exception {
   const PosApiException(

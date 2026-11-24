@@ -1,6 +1,6 @@
 # Mysztech Store Assistant
 
-A green themed Flutter app for monitoring the POS staging API with an authorized session token. Its OpenAPI reference is in the sibling `pos project reference/pos project reference/json source/document (1).json` folder; the staging server is `https://mts-pos-staging.laravel.cloud/api`.
+A green themed Flutter app for monitoring the live POS API with an authorized account session. Its OpenAPI reference is in the sibling `pos project reference/pos project reference/json source/document (1).json` folder; the production server is `https://mysztech.com/api`.
 
 ## Run on Android
 

@@ -90,29 +90,59 @@ class StockScreenState extends State<StockScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(
-                        value: 'inventory',
-                        label: Text('Inventory'),
-                        icon: Icon(Icons.inventory_2_outlined),
-                      ),
-                      ButtonSegment(
-                        value: 'movements',
-                        label: Text('Movements'),
-                        icon: Icon(Icons.swap_vert),
-                      ),
-                      ButtonSegment(
-                        value: 'local',
-                        label: Text('On-device'),
-                        icon: Icon(Icons.phone_android),
-                      ),
-                    ],
-                    selected: {_view},
-                    onSelectionChanged: (value) => _selectView(value.first),
-                  ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    if (constraints.maxWidth < 480) {
+                      return Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          _StockViewChip(
+                            label: 'Inventory',
+                            icon: Icons.inventory_2_outlined,
+                            value: 'inventory',
+                            selected: _view == 'inventory',
+                            onSelected: _selectView,
+                          ),
+                          _StockViewChip(
+                            label: 'Movements',
+                            icon: Icons.swap_vert,
+                            value: 'movements',
+                            selected: _view == 'movements',
+                            onSelected: _selectView,
+                          ),
+                          _StockViewChip(
+                            label: 'On-device',
+                            icon: Icons.phone_android,
+                            value: 'local',
+                            selected: _view == 'local',
+                            onSelected: _selectView,
+                          ),
+                        ],
+                      );
+                    }
+                    return SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'inventory',
+                          label: Text('Inventory'),
+                          icon: Icon(Icons.inventory_2_outlined),
+                        ),
+                        ButtonSegment(
+                          value: 'movements',
+                          label: Text('Movements'),
+                          icon: Icon(Icons.swap_vert),
+                        ),
+                        ButtonSegment(
+                          value: 'local',
+                          label: Text('On-device'),
+                          icon: Icon(Icons.phone_android),
+                        ),
+                      ],
+                      selected: {_view},
+                      onSelectionChanged: (value) => _selectView(value.first),
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
                 if (_view == 'local')
@@ -240,6 +270,30 @@ class StockScreenState extends State<StockScreen> {
         ),
       ],
     ),
+  );
+}
+
+class _StockViewChip extends StatelessWidget {
+  const _StockViewChip({
+    required this.label,
+    required this.icon,
+    required this.value,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final IconData icon;
+  final String value;
+  final bool selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) => ChoiceChip(
+    avatar: Icon(icon, size: 18),
+    label: Text(label),
+    selected: selected,
+    onSelected: (_) => onSelected(value),
   );
 }
 

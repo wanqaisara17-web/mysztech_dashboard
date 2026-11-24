@@ -64,6 +64,14 @@ class DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const Spacer(),
                   TextButton.icon(
+                    style: const ButtonStyle(
+                      minimumSize: WidgetStatePropertyAll(Size.zero),
+                      padding: WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                    ),
                     onPressed: widget.onOpenSales,
                     icon: const Icon(Icons.arrow_forward, size: 17),
                     label: const Text('Sales'),
@@ -81,7 +89,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                     detail: snapshot.hasError
                         ? 'Sales data unavailable'
                         : snapshot.connectionState == ConnectionState.waiting
-                        ? 'Loading from staging API…'
+                        ? 'Loading sales records…'
                         : 'Total reported by the sales list',
                     icon: Icons.receipt_long_outlined,
                     color: const Color(0xFFE7F4EB),
@@ -104,7 +112,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                     return const _SummaryCard(
                       label: 'Low-stock records',
                       value: '…',
-                      detail: 'Loading inventory from staging API',
+                      detail: 'Loading inventory…',
                       icon: Icons.inventory_2_outlined,
                       color: Color(0xFFFFF2DD),
                     );
