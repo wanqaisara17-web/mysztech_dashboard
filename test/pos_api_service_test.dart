@@ -15,25 +15,39 @@ void main() {
     }
   });
 
-  test('setting token after missing-token state makes fresh authorized sales request', () async {
+  test('setting token after missing-token state makes fresh authorized receipts request', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     var requestCount = 0;
     var requestMethod = '';
     var requestPath = '';
     var authorization = '';
+    var outletId = '';
     final serverSubscription = server.listen((request) async {
       requestCount++;
       requestMethod = request.method;
       requestPath = request.uri.path;
       authorization =
           request.headers.value(HttpHeaders.authorizationHeader) ?? '';
+      outletId = request.headers.value('outlet-id') ?? '';
       request.response.headers.contentType = ContentType.json;
       request.response.write(
         jsonEncode({
           'is_success': true,
           'status_code': 200,
-          'data': <dynamic>[],
-          'paginator': {'total': 0},
+          'data': request.uri.path == '/api/v2/outlets/list'
+              ? [
+                  {'id': 'outlet-1'},
+                ]
+              : [
+                  {
+                    'id': 'receipt-1',
+                    'outlet_id': 'outlet-1',
+                    'open_order_name': 'Lunch order',
+                    'payable_amount': '12.50',
+                    'order_end_time': '2026-11-24T12:30:00Z',
+                  },
+                ],
+          'paginator': {'total': 1},
         }),
       );
       await request.response.close();
@@ -45,12 +59,14 @@ void main() {
       api.setToken(' Bearer local-test-token ');
       final page = await api.getSales();
 
-      expect(page.sales, isEmpty);
-      expect(page.total, 0);
-      expect(requestCount, 1);
+      expect(page.sales.single.name, 'Lunch order');
+      expect(page.sales.single.totalPrice, 12.5);
+      expect(page.total, 1);
+      expect(requestCount, 2);
       expect(requestMethod, 'GET');
-      expect(requestPath, '/api/v2/sales/list');
+      expect(requestPath, '/api/v2/receipts/list');
       expect(authorization, 'Bearer local-test-token');
+      expect(outletId, 'outlet-1');
     } finally {
       api.close();
       await serverSubscription.cancel();
@@ -68,7 +84,11 @@ void main() {
         jsonEncode({
           'is_success': true,
           'status_code': 200,
-          'data': <dynamic>[],
+          'data': request.uri.path == '/api/v2/outlets/list'
+              ? [
+                  {'id': 'outlet-1'},
+                ]
+              : <dynamic>[],
           'paginator': {
             'total': '0',
             'count': '0',
@@ -90,7 +110,7 @@ void main() {
 
       expect(identical(dashboardLoad, salesLoad), isTrue);
       await Future.wait([dashboardLoad, salesLoad]);
-      expect(requestCount, 1);
+      expect(requestCount, 2);
     } finally {
       api.close();
       await serverSubscription.cancel();
@@ -111,6 +131,9 @@ void main() {
         );
         request.response.headers.contentType = ContentType.json;
         final data = switch (request.uri.path) {
+          '/api/v2/outlets/list' => [
+            {'id': 'outlet-1'},
+          ],
           '/api/v2/items/list' => [
             {
               'id': 'item-1',
@@ -234,7 +257,11 @@ void main() {
             jsonEncode({
               'is_success': true,
               'status_code': 200,
-              'data': <dynamic>[],
+              'data': request.uri.path == '/api/v2/outlets/list'
+                  ? [
+                      {'id': 'outlet-1'},
+                    ]
+                  : <dynamic>[],
               'paginator': {'total': 0},
             }),
           );

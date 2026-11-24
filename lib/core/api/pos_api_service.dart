@@ -45,6 +45,7 @@ class PosApiService {
   Future<List<PosItem>>? _itemsRequest;
   Future<List<InventoryStock>>? _inventoryRequest;
   Future<List<InventoryMovement>>? _movementsRequest;
+  Future<String>? _outletIdRequest;
   final Map<String, Future<String?>> _categoryNames = {};
   static const requestTimeout = Duration(seconds: 20);
 
@@ -58,6 +59,7 @@ class PosApiService {
     _itemsRequest = null;
     _inventoryRequest = null;
     _movementsRequest = null;
+    _outletIdRequest = null;
     _categoryNames.clear();
   }
 
@@ -250,6 +252,26 @@ class PosApiService {
           .map(InventoryMovement.fromJson)
           .toList(growable: false);
 
+  Future<String> _getOutletId() {
+    _outletIdRequest ??= _loadOutletId();
+    return _outletIdRequest!;
+  }
+
+  Future<String> _loadOutletId() async {
+    final document = await _getDocument('/v2/outlets/list');
+    final data = document['data'];
+    if (data is List) {
+      for (final outlet in data.whereType<Map<String, dynamic>>()) {
+        final id = outlet['id']?.toString();
+        if (id != null && id.isNotEmpty) return id;
+      }
+    }
+
+    throw const PosApiException(
+      'No accessible outlet was found for this account.',
+    );
+  }
+
   Future<String?> _categoryName(String? id) {
     if (id == null || id.isEmpty) return Future.value(null);
     return _categoryNames.putIfAbsent(id, () async {
@@ -288,6 +310,9 @@ class PosApiService {
           .getUrl(Uri.parse('$baseUrl$path'))
           .timeout(requestTimeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
+      if (path != '/v2/outlets/list') {
+        request.headers.set('outlet-id', await _getOutletId());
+      }
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       final response = await request.close().timeout(requestTimeout);
       final body = await utf8.decoder
@@ -384,13 +409,15 @@ class PosApiService {
     }
 
     try {
-      final uri = Uri.parse('$baseUrl/v2/sales/list');
+      final outletId = await _getOutletId();
+      final uri = Uri.parse('$baseUrl/v2/receipts/list');
       final request = await _client.getUrl(uri).timeout(requestTimeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
+      request.headers.set('outlet-id', outletId);
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       final response = await request.close().timeout(requestTimeout);
       debugPrint(
-        '[Sales API] GET /v2/sales/list status=${response.statusCode}',
+        '[Sales API] GET /v2/receipts/list status=${response.statusCode}',
       );
       final body = await utf8.decoder
           .bind(response)

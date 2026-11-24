@@ -9,12 +9,12 @@ A green themed Flutter app for monitoring the POS production API with an authori
 3. Run `flutter run -d <device-id>`.
 4. Sign in with the production account email, password, and license key. The license-key field groups digits in five-character blocks, for example `66666-66666-66666-66666`. The app calls the documented `POST /v2/login` endpoint and uses its returned `data.access_token` for subsequent requests. Credentials and the access token remain in memory only; sign in again after fully closing the app.
 
-After sign-in, the app requests `/api/v2/sales/list`. HTTP 200 with an empty `data` array displays **No sales records yet**. Retry or pull down to refresh. The app does not log credentials, tokens, or authorization headers.
+After sign-in, the app requests `/api/v2/receipts/list`. HTTP 200 with an empty `data` array displays **No sales records yet**. Retry or pull down to refresh. The app does not log credentials, tokens, or authorization headers.
 
 ## Available data and limits
 
 - **Dashboard:** displays the sales record total and the count of outlet inventory records at or below their API-provided low-stock threshold. Sales amount is unavailable because no confirmed aggregate source is documented.
-- **Sales:** uses `GET /v2/sales/list` and reports authentication, permission, timeout, and connection errors.
+- **Sales:** uses `GET /v2/receipts/list` and reports authentication, permission, timeout, and connection errors.
 - **Items:** uses `GET /v2/items/list`, `GET /v2/items/{id}`, and `GET /v2/category/{id}` for category names where authorized. Search matches item name, SKU, and barcode.
 - **Stock:** uses `GET /v2/inventory-outlet/list`, matching `inventory_id` to item records for names. The Movements view uses `GET /v2/inventory-transactions/list`. Low-stock flags use the API's `low_stock_threshold` field.
 - **On-device catalog and counts:** manually add/edit local item details, quantities, and local minimum levels from Items. The separate On-device Stock view uses only these records. Android saves them in app-private preferences; they are never sent to the POS and never appear in live API totals.

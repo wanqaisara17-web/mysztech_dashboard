@@ -18,10 +18,10 @@ class Sale {
   factory Sale.fromJson(Map<String, dynamic> json) => Sale(
     id: json['id']?.toString() ?? '',
     outletId: json['outlet_id']?.toString() ?? '',
-    name: json['name']?.toString(),
-    totalPrice: _number(json['total_price']),
+    name: json['name']?.toString() ?? json['open_order_name']?.toString(),
+    totalPrice: _number(json['total_price'] ?? json['payable_amount']),
     createdAt: _date(json['created_at']),
-    chargedAt: _date(json['charged_at']),
+    chargedAt: _date(json['charged_at'] ?? json['order_end_time']),
   );
 
   static num? _number(dynamic value) =>
