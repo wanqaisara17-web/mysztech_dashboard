@@ -11,8 +11,6 @@ import '../models/authenticated_user.dart';
 import '../models/sales_page.dart';
 
 const posApiProductionUrl = 'https://mysztech.com/api';
-const posApiStagingUrl = 'https://mts-pos-staging.laravel.cloud/api';
-// Use the live POS API in both debug and release builds.
 const posApiBaseUrl = posApiProductionUrl;
 
 class PosApiException implements Exception {
@@ -107,7 +105,7 @@ class PosApiService {
       }
       if (effectiveStatus == HttpStatus.forbidden) {
         throw const PosApiException(
-          'This account is not permitted to sign in to the staging service.',
+          'This account is not permitted to sign in to the production service.',
           statusCode: HttpStatus.forbidden,
         );
       }
@@ -155,11 +153,11 @@ class PosApiService {
       );
     } on SocketException {
       throw const PosApiException(
-        'Could not reach the staging sign-in service. Check your connection.',
+        'Could not reach the production sign-in service. Check your connection.',
       );
     } on HttpException {
       throw const PosApiException(
-        'The staging sign-in connection was interrupted. Retry.',
+        'The production sign-in connection was interrupted. Retry.',
       );
     } on IOException {
       throw const PosApiException(
@@ -281,7 +279,7 @@ class PosApiService {
   Future<Map<String, dynamic>> _getDocument(String path) async {
     if (_token.isEmpty) {
       throw const PosApiException(
-        'Connect an authorized staging token from Sales to load this data.',
+        'Connect an authorized production token from Sales to load this data.',
         requiresToken: true,
       );
     }
@@ -298,13 +296,13 @@ class PosApiService {
           .timeout(requestTimeout);
       if (response.statusCode == HttpStatus.unauthorized) {
         throw const PosApiException(
-          'Your token was rejected. Supply a currently authorized staging token.',
+          'Your token was rejected. Supply a currently authorized production token.',
           statusCode: HttpStatus.unauthorized,
         );
       }
       if (response.statusCode == HttpStatus.forbidden) {
         throw PosApiException(
-          'This staging account is not permitted to access ${_endpointName(path)}.',
+        'This production account is not permitted to access ${_endpointName(path)}.',
           statusCode: HttpStatus.forbidden,
         );
       }
@@ -328,8 +326,8 @@ class PosApiService {
         if (code == HttpStatus.unauthorized || code == HttpStatus.forbidden) {
           throw PosApiException(
             code == HttpStatus.unauthorized
-                ? 'Your token was rejected. Supply a currently authorized staging token.'
-                : 'This staging account is not permitted to access ${_endpointName(path)}.',
+                ? 'Your token was rejected. Supply a currently authorized production token.'
+                : 'This production account is not permitted to access ${_endpointName(path)}.',
             statusCode: code,
           );
         }
@@ -348,11 +346,11 @@ class PosApiService {
       );
     } on SocketException {
       throw const PosApiException(
-        'Could not reach the staging API. Check your connection and retry.',
+        'Could not reach the production API. Check your connection and retry.',
       );
     } on HttpException {
       throw const PosApiException(
-        'The staging API connection was interrupted. Retry the request.',
+        'The production API connection was interrupted. Retry the request.',
       );
     } on IOException {
       throw const PosApiException(
@@ -371,7 +369,7 @@ class PosApiService {
     '/v2/inventory-transactions/list' => 'inventory movements',
     _ when path.startsWith('/v2/items/') => 'item details',
     _ when path.startsWith('/v2/categories/') => 'item category',
-    _ => 'staging API',
+    _ => 'production API',
   };
 
   Future<SalesPage> _loadSales() async {
@@ -380,7 +378,7 @@ class PosApiService {
     );
     if (_token.isEmpty) {
       throw const PosApiException(
-        'Enter an authorized staging token to load sales. It stays in memory for this app session.',
+        'Enter an authorized production token to load sales. It stays in memory for this app session.',
         requiresToken: true,
       );
     }
@@ -401,13 +399,13 @@ class PosApiService {
 
       if (response.statusCode == HttpStatus.unauthorized) {
         throw const PosApiException(
-          'Your token was rejected. Supply a currently authorized staging token.',
+          'Your token was rejected. Supply a currently authorized production token.',
           statusCode: HttpStatus.unauthorized,
         );
       }
       if (response.statusCode == HttpStatus.forbidden) {
         throw const PosApiException(
-          'This staging account is not permitted to view sales. Ask an administrator to grant access.',
+          'This production account is not permitted to view sales. Ask an administrator to grant access.',
           statusCode: HttpStatus.forbidden,
         );
       }
@@ -443,12 +441,12 @@ class PosApiService {
     } on SocketException {
       debugPrint('[Sales API] error category=network_unreachable');
       throw const PosApiException(
-        'Could not reach the staging API. Check your connection and retry.',
+        'Could not reach the production API. Check your connection and retry.',
       );
     } on HttpException {
       debugPrint('[Sales API] error category=http_connection');
       throw const PosApiException(
-        'The connection to the staging API was interrupted. Retry the request.',
+        'The connection to the production API was interrupted. Retry the request.',
       );
     } on IOException {
       debugPrint('[Sales API] error category=io');

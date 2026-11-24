@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_monitoring_app/core/api/pos_api_service.dart';
 
 void main() {
-  test('the default API base URL targets the live POS API', () {
+  test('the default API base URL targets production', () {
     final api = PosApiService();
 
     try {

@@ -89,7 +89,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                     detail: snapshot.hasError
                         ? 'Sales data unavailable'
                         : snapshot.connectionState == ConnectionState.waiting
-                        ? 'Loading sales records…'
+                        ? 'Loading from production API…'
                         : 'Total reported by the sales list',
                     icon: Icons.receipt_long_outlined,
                     color: const Color(0xFFE7F4EB),
@@ -112,7 +112,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                     return const _SummaryCard(
                       label: 'Low-stock records',
                       value: '…',
-                      detail: 'Loading inventory…',
+                      detail: 'Loading inventory from production API',
                       icon: Icons.inventory_2_outlined,
                       color: Color(0xFFFFF2DD),
                     );

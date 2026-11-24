@@ -96,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Sign in to your POS account',
+                  'Sign in to your POS production account',
                   style: TextStyle(color: Color(0xFF69756E)),
                 ),
                 const SizedBox(height: 24),
@@ -205,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 10),
                         const Text(
-                          'Your credentials are sent to the POS sign-in service and are not saved by this app.',
+                          'Your credentials are sent to the production login API and are not saved by this app.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Color(0xFF69756E),
