@@ -15,6 +15,7 @@ class LocalLabelScreen extends StatefulWidget {
 class _LocalLabelScreenState extends State<LocalLabelScreen> {
   late final TextEditingController _name;
   late final TextEditingController _sku;
+  late final TextEditingController _barcode;
   late final TextEditingController _category;
   late final TextEditingController _price;
 
@@ -22,9 +23,8 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.item?.name ?? '');
-    _sku = TextEditingController(
-      text: widget.item?.sku ?? widget.item?.barcode ?? '',
-    );
+    _sku = TextEditingController(text: widget.item?.sku ?? '');
+    _barcode = TextEditingController(text: widget.item?.barcode ?? '');
     _category = TextEditingController(text: widget.item?.categoryName ?? '');
     _price = TextEditingController(text: widget.item?.price?.toString() ?? '');
   }
@@ -33,6 +33,7 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
   void dispose() {
     _name.dispose();
     _sku.dispose();
+    _barcode.dispose();
     _category.dispose();
     _price.dispose();
     super.dispose();
@@ -42,7 +43,8 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
   Widget build(BuildContext context) {
     final labelText = [
       _name.text.trim(),
-      if (_sku.text.trim().isNotEmpty) 'SKU / Barcode: ${_sku.text.trim()}',
+      if (_sku.text.trim().isNotEmpty) 'SKU: ${_sku.text.trim()}',
+      if (_barcode.text.trim().isNotEmpty) 'Barcode: ${_barcode.text.trim()}',
       if (_category.text.trim().isNotEmpty)
         'Category: ${_category.text.trim()}',
       if (_price.text.trim().isNotEmpty) 'Price: ${_price.text.trim()}',
@@ -71,7 +73,16 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
           TextField(
             controller: _sku,
             decoration: const InputDecoration(
-              labelText: 'SKU or barcode (optional)',
+              labelText: 'SKU (optional)',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _barcode,
+            decoration: const InputDecoration(
+              labelText: 'Barcode (optional)',
               border: OutlineInputBorder(),
             ),
             onChanged: (_) => setState(() {}),
@@ -115,7 +126,8 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
                     style: Theme.of(context).textTheme.titleLarge
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
-                  if (_sku.text.isNotEmpty) Text('SKU / Barcode: ${_sku.text}'),
+                  if (_sku.text.isNotEmpty) Text('SKU: ${_sku.text}'),
+                  if (_barcode.text.isNotEmpty) Text('Barcode: ${_barcode.text}'),
                   if (_category.text.isNotEmpty)
                     Text('Category: ${_category.text}'),
                   if (_price.text.isNotEmpty)

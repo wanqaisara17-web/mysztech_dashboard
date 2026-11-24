@@ -40,6 +40,7 @@ class _AppShellState extends State<AppShell> {
         key: _dashboardKey,
         apiService: widget.apiService,
         onOpenSales: () => _select(1),
+        onOpenLowStock: _openLowStock,
       ),
       SalesScreen(
         apiService: widget.apiService,
@@ -97,5 +98,10 @@ class _AppShellState extends State<AppShell> {
   void _select(int index) {
     if (index == _selectedIndex) return;
     setState(() => _selectedIndex = index);
+  }
+
+  void _openLowStock() {
+    _stockKey.currentState?.showLowStock();
+    _select(2);
   }
 }

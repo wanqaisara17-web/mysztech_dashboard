@@ -238,6 +238,23 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
+void _showSaleDetails(BuildContext context, Sale sale) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(sale.name?.isNotEmpty == true ? sale.name! : 'Receipt ${sale.id}'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Receipt ID: ${sale.id}'),
+        if (sale.outletId.isNotEmpty) Text('Outlet ID: ${sale.outletId}'),
+        if (sale.totalPrice != null) Text('Amount: ${sale.totalPrice!.toStringAsFixed(2)}'),
+        if (sale.createdAt != null) Text('Created: ${sale.createdAt!.toLocal()}'),
+        if (sale.chargedAt != null) Text('Charged: ${sale.chargedAt!.toLocal()}'),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+    ),
+  );
+}
+
 class _CountBanner extends StatelessWidget {
   const _CountBanner({required this.total, required this.showing});
 
@@ -275,11 +292,12 @@ class _SaleTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final timestamp = sale.chargedAt ?? sale.createdAt;
     final subtitle = [
-      if (sale.name?.isNotEmpty == true) sale.name!,
       if (timestamp != null) _formatDate(timestamp),
-      if (sale.outletId.isNotEmpty) 'Outlet ${sale.outletId}',
-    ].join(' · ');
-    return SectionCard(
+      if (sale.outletId.isNotEmpty) 'Outlet ID ${sale.outletId}',
+    ].join(' | ');
+    return GestureDetector(
+      onTap: () => _showSaleDetails(context, sale),
+      child: SectionCard(
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
@@ -299,7 +317,7 @@ class _SaleTile extends StatelessWidget {
                 Text(
                   sale.name?.isNotEmpty == true
                       ? sale.name!
-                      : 'Sale ${sale.id}',
+                      : 'Receipt ${sale.id}',
                   style: const TextStyle(fontWeight: FontWeight.w700),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -321,20 +339,34 @@ class _SaleTile extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Text(
-            sale.totalPrice == null ? '—' : sale.totalPrice.toString(),
+            sale.totalPrice == null ? '—' : sale.totalPrice!.toStringAsFixed(2),
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ],
+      ),
       ),
     );
   }
 
   String _formatDate(DateTime date) {
     final local = date.toLocal();
-    final month = local.month.toString().padLeft(2, '0');
-    final day = local.day.toString().padLeft(2, '0');
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final hour = (local.hour % 12 == 0 ? 12 : local.hour % 12).toString();
     final minute = local.minute.toString().padLeft(2, '0');
-    return '$month/$day/${local.year} · $hour:$minute ${local.hour < 12 ? 'AM' : 'PM'}';
+    return '${local.day} ${months[local.month - 1]} ${local.year}, '
+        '$hour:$minute ${local.hour < 12 ? 'AM' : 'PM'}';
   }
 }

@@ -173,7 +173,6 @@ void main() {
             {
               'id': 'move-1',
               'inventory_id': 'inventory-9',
-              'name': 'Green Tea',
               'type': 'adjustment',
               'quantity': '2',
               'stock_after': '2',
@@ -211,6 +210,7 @@ void main() {
         expect(stock.single.quantity, 2);
         expect(stock.single.isLowStock, isTrue);
         expect(movements.single.stockAfter, 2);
+        expect(movements.single.name, 'Green Tea');
         expect(paths, contains('/api/v2/items/list'));
         expect(paths, contains('/api/v2/items/item-1'));
         expect(paths, contains('/api/v2/inventory-outlet/list'));

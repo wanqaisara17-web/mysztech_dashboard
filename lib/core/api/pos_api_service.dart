@@ -247,10 +247,28 @@ class PosApiService {
         .toList(growable: false);
   }
 
-  Future<List<InventoryMovement>> _loadInventoryMovements() async =>
-      (await _getList('/v2/inventory-transactions/list'))
-          .map(InventoryMovement.fromJson)
-          .toList(growable: false);
+  Future<List<InventoryMovement>> _loadInventoryMovements() async {
+    final results = await Future.wait<Object>([
+      _getList('/v2/inventory-transactions/list'),
+      getItems().then<List<PosItem>>((items) => items).catchError(
+        (Object _) => <PosItem>[],
+      ),
+    ]);
+    final rows = results[0] as List<Map<String, dynamic>>;
+    final items = results[1] as List<PosItem>;
+    final namesByInventoryId = <String, String>{
+      for (final item in items)
+        if (item.inventoryId != null) item.inventoryId!: item.name,
+    };
+    return rows.map((row) {
+      final movement = InventoryMovement.fromJson(row);
+      return movement.withName(
+        movement.name?.isNotEmpty == true
+            ? movement.name
+            : namesByInventoryId[movement.inventoryId],
+      );
+    }).toList(growable: false);
+  }
 
   Future<String> _getOutletId() {
     _outletIdRequest ??= _loadOutletId();

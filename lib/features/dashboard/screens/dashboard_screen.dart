@@ -11,10 +11,12 @@ class DashboardScreen extends StatefulWidget {
     super.key,
     required this.apiService,
     required this.onOpenSales,
+    required this.onOpenLowStock,
   });
 
   final PosApiService apiService;
   final VoidCallback onOpenSales;
+  final VoidCallback onOpenLowStock;
 
   @override
   State<DashboardScreen> createState() => DashboardScreenState();
@@ -93,6 +95,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                         : 'Total reported by the sales list',
                     icon: Icons.receipt_long_outlined,
                     color: const Color(0xFFE7F4EB),
+                    onTap: widget.onOpenSales,
                   );
                 },
               ),
@@ -109,21 +112,23 @@ class DashboardScreenState extends State<DashboardScreen> {
                 future: _stock,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const _SummaryCard(
+                    return _SummaryCard(
                       label: 'Low-stock records',
                       value: '…',
                       detail: 'Loading inventory from production API',
                       icon: Icons.inventory_2_outlined,
                       color: Color(0xFFFFF2DD),
+                      onTap: widget.onOpenLowStock,
                     );
                   }
                   if (snapshot.hasError) {
-                    return const _SummaryCard(
+                    return _SummaryCard(
                       label: 'Low-stock records',
                       value: '—',
                       detail: 'Stock data unavailable',
                       icon: Icons.inventory_2_outlined,
                       color: Color(0xFFFFF2DD),
+                      onTap: widget.onOpenLowStock,
                     );
                   }
                   final rows = snapshot.data ?? const <InventoryStock>[];
@@ -145,6 +150,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                         : 'At or below API-provided threshold',
                     icon: Icons.inventory_2_outlined,
                     color: const Color(0xFFFFF2DD),
+                    onTap: widget.onOpenLowStock,
                   );
                 },
               ),
@@ -195,6 +201,7 @@ class _SummaryCard extends StatelessWidget {
     required this.detail,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   final String label;
@@ -202,9 +209,10 @@ class _SummaryCard extends StatelessWidget {
   final String detail;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => SectionCard(
+  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: SectionCard(
     child: Row(
       children: [
         Container(
@@ -240,5 +248,5 @@ class _SummaryCard extends StatelessWidget {
         ),
       ],
     ),
-  );
+  ));
 }

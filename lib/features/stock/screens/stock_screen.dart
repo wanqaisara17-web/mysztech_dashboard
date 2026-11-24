@@ -29,6 +29,24 @@ class StockScreenState extends State<StockScreen> {
   late Future<List<InventoryStock>> _stock;
   Future<List<InventoryMovement>>? _movements;
   String _view = 'inventory';
+  String _query = '';
+  bool _lowOnly = false;
+  final _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void showLowStock() {
+    setState(() {
+      _view = 'inventory';
+      _lowOnly = true;
+      _query = '';
+      _searchController.clear();
+    });
+  }
 
   @override
   void initState() {
@@ -145,6 +163,23 @@ class StockScreenState extends State<StockScreen> {
                   },
                 ),
                 const SizedBox(height: 12),
+                if (_view == 'inventory') ...[
+                  TextField(
+                    controller: _searchController,
+                    onChanged: (value) => setState(() => _query = value.trim().toLowerCase()),
+                    decoration: const InputDecoration(
+                      hintText: 'Search inventory by product name',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 8, children: [
+                    ChoiceChip(label: const Text('All Stock'), selected: !_lowOnly, onSelected: (_) => setState(() => _lowOnly = false)),
+                    ChoiceChip(label: const Text('Low Stock'), selected: _lowOnly, onSelected: (_) => setState(() => _lowOnly = true)),
+                  ]),
+                  const SizedBox(height: 8),
+                ],
                 if (_view == 'local')
                   AnimatedBuilder(
                     animation: widget.workspace,
@@ -227,10 +262,17 @@ class StockScreenState extends State<StockScreen> {
                           onConnect: widget.onConnect,
                         );
                       }
-                      final rows = snapshot.data ?? const <InventoryStock>[];
+                      final rows = (snapshot.data ?? const <InventoryStock>[])
+                          .where((row) => row.itemName.toLowerCase().contains(_query))
+                          .where((row) => !_lowOnly || row.isLowStock)
+                          .toList(growable: false);
                       if (rows.isEmpty) {
-                        return const _Empty(
-                          message: 'No inventory records returned.',
+                        return _Empty(
+                          message: _query.isNotEmpty
+                              ? 'No inventory names match this search.'
+                              : _lowOnly
+                              ? 'No low-stock inventory records returned.'
+                              : 'No inventory records returned.',
                         );
                       }
                       return Column(
@@ -258,7 +300,7 @@ class StockScreenState extends State<StockScreen> {
                           for (final row in rows)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                              child: _StockTile(stock: row),
+                              child: _StockTile(stock: row, onTap: () => _showStockDetails(context, row)),
                             ),
                         ],
                       );
@@ -271,6 +313,20 @@ class StockScreenState extends State<StockScreen> {
       ],
     ),
   );
+}
+
+void _showStockDetails(BuildContext context, InventoryStock stock) {
+  showDialog<void>(context: context, builder: (context) => AlertDialog(
+    title: Text(stock.itemName),
+    content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Inventory ID: ${stock.inventoryId}'),
+      Text('Outlet ID: ${stock.outletId ?? '—'}'),
+      Text('Available: ${stock.quantity}'),
+      Text('Low-stock threshold: ${stock.lowStockThreshold?.toString() ?? 'Not provided'}'),
+      Text('Enabled: ${stock.enabled?.toString() ?? 'Not provided'}'),
+    ]),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+  ));
 }
 
 class _StockViewChip extends StatelessWidget {
@@ -298,10 +354,11 @@ class _StockViewChip extends StatelessWidget {
 }
 
 class _StockTile extends StatelessWidget {
-  const _StockTile({required this.stock});
+  const _StockTile({required this.stock, required this.onTap});
   final InventoryStock stock;
+  final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => SectionCard(
+  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: SectionCard(
     padding: const EdgeInsets.all(16),
     child: Row(
       children: [
@@ -370,7 +427,7 @@ class _StockTile extends StatelessWidget {
         ),
       ],
     ),
-  );
+  ));
 }
 
 class _MovementTile extends StatelessWidget {

@@ -36,6 +36,18 @@ class InventoryMovement {
             : null,
       );
 
+  InventoryMovement withName(String? value) => InventoryMovement(
+    id: id,
+    inventoryId: inventoryId,
+    type: type,
+    quantity: quantity,
+    stockAfter: stockAfter,
+    name: value,
+    outletId: outletId,
+    reason: reason,
+    performedAt: performedAt,
+  );
+
   static num? _number(dynamic value) =>
       value is num ? value : num.tryParse(value?.toString() ?? '');
 }

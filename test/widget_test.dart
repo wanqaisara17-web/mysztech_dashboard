@@ -252,6 +252,7 @@ void main() {
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), 'Local Lemon');
     await tester.enterText(fields.at(1), 'LEM-1');
+    await tester.enterText(fields.at(2), '0123456789');
     await tester.enterText(fields.at(3), 'Fruit');
     await tester.enterText(fields.at(4), '1.25');
     await tester.enterText(fields.at(5), '2');
@@ -285,7 +286,8 @@ void main() {
     await tester.tap(find.byTooltip('Preview local label'));
     await tester.pumpAndSettle();
     expect(find.text('Category: Fruit'), findsOneWidget);
-    expect(find.text('SKU / Barcode: LEM-1'), findsOneWidget);
+    expect(find.text('SKU: LEM-1'), findsOneWidget);
+    expect(find.text('Barcode: 0123456789'), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
 
