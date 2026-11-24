@@ -100,17 +100,41 @@ class ItemsScreenState extends State<ItemsScreen> {
                       ),
                   ],
                 ),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('POS catalog')),
-                    ButtonSegment(value: true, label: Text('On-device')),
-                  ],
-                  selected: {_showLocal},
-                  onSelectionChanged: (selection) => setState(() {
-                    _showLocal = selection.first;
-                    _query = '';
-                    _searchController.clear();
-                  }),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    void setCatalog(bool showLocal) => setState(() {
+                      _showLocal = showLocal;
+                      _query = '';
+                      _searchController.clear();
+                    });
+
+                    if (constraints.maxWidth < 420) {
+                      return Wrap(
+                        spacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('POS catalog'),
+                            selected: !_showLocal,
+                            onSelected: (_) => setCatalog(false),
+                          ),
+                          ChoiceChip(
+                            label: const Text('On-device'),
+                            selected: _showLocal,
+                            onSelected: (_) => setCatalog(true),
+                          ),
+                        ],
+                      );
+                    }
+                    return SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('POS catalog')),
+                        ButtonSegment(value: true, label: Text('On-device')),
+                      ],
+                      selected: {_showLocal},
+                      onSelectionChanged: (selection) =>
+                          setCatalog(selection.first),
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
                 TextField(

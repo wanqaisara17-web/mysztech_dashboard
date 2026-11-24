@@ -64,6 +64,14 @@ class DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const Spacer(),
                   TextButton.icon(
+                    style: const ButtonStyle(
+                      minimumSize: WidgetStatePropertyAll(Size.zero),
+                      padding: WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                    ),
                     onPressed: widget.onOpenSales,
                     icon: const Icon(Icons.arrow_forward, size: 17),
                     label: const Text('Sales'),

@@ -15,6 +15,7 @@ class LocalLabelScreen extends StatefulWidget {
 class _LocalLabelScreenState extends State<LocalLabelScreen> {
   late final TextEditingController _name;
   late final TextEditingController _sku;
+  late final TextEditingController _category;
   late final TextEditingController _price;
 
   @override
@@ -24,6 +25,7 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
     _sku = TextEditingController(
       text: widget.item?.sku ?? widget.item?.barcode ?? '',
     );
+    _category = TextEditingController(text: widget.item?.categoryName ?? '');
     _price = TextEditingController(text: widget.item?.price?.toString() ?? '');
   }
 
@@ -31,6 +33,7 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
   void dispose() {
     _name.dispose();
     _sku.dispose();
+    _category.dispose();
     _price.dispose();
     super.dispose();
   }
@@ -40,6 +43,8 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
     final labelText = [
       _name.text.trim(),
       if (_sku.text.trim().isNotEmpty) 'SKU / Barcode: ${_sku.text.trim()}',
+      if (_category.text.trim().isNotEmpty)
+        'Category: ${_category.text.trim()}',
       if (_price.text.trim().isNotEmpty) 'Price: ${_price.text.trim()}',
     ].where((part) => part.isNotEmpty).join('\n');
 
@@ -67,6 +72,15 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
             controller: _sku,
             decoration: const InputDecoration(
               labelText: 'SKU or barcode (optional)',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _category,
+            decoration: const InputDecoration(
+              labelText: 'Category (optional)',
               border: OutlineInputBorder(),
             ),
             onChanged: (_) => setState(() {}),
@@ -102,6 +116,8 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   if (_sku.text.isNotEmpty) Text('SKU / Barcode: ${_sku.text}'),
+                  if (_category.text.isNotEmpty)
+                    Text('Category: ${_category.text}'),
                   if (_price.text.isNotEmpty)
                     Text(
                       'Price: ${_price.text}',

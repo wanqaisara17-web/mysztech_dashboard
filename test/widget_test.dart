@@ -186,6 +186,39 @@ void main() {
     expect(find.textContaining('at or below API threshold'), findsOneWidget);
   });
 
+  testWidgets('empty API lists and narrow stock tabs render cleanly', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(home: AppShell(apiService: _FakeApiService())),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Total reported by the sales list'), findsOneWidget);
+    expect(find.text('No inventory records returned'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Stock').last);
+    await tester.pumpAndSettle();
+    expect(find.text('No inventory records returned.'), findsOneWidget);
+    expect(find.text('Movements'), findsOneWidget);
+    expect(find.text('On-device'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Movements').first);
+    await tester.pumpAndSettle();
+    expect(find.text('No stock movements returned.'), findsOneWidget);
+
+    await tester.tap(find.text('Items').last);
+    await tester.pumpAndSettle();
+    expect(find.text('No items returned by the POS.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('local items stay separate and appear in on-device stock', (
     tester,
   ) async {
@@ -219,6 +252,7 @@ void main() {
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), 'Local Lemon');
     await tester.enterText(fields.at(1), 'LEM-1');
+    await tester.enterText(fields.at(3), 'Fruit');
     await tester.enterText(fields.at(4), '1.25');
     await tester.enterText(fields.at(5), '2');
     await tester.enterText(fields.at(6), '3');
@@ -229,15 +263,53 @@ void main() {
 
     expect(find.text('LOCAL ONLY · Not synced to POS'), findsOneWidget);
     expect(find.text('Local Lemon'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'LEM-1');
+    await tester.pumpAndSettle();
+    expect(find.text('Local Lemon'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'no-match');
+    await tester.pumpAndSettle();
+    expect(find.text('No local items match this search.'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.clear));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Local Lemon').last);
+    await tester.pumpAndSettle();
+    final editFields = find.byType(TextFormField);
+    await tester.enterText(editFields.at(5), '1');
+    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('Save on this device'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Preview local label'));
+    await tester.pumpAndSettle();
+    expect(find.text('Category: Fruit'), findsOneWidget);
+    expect(find.text('SKU / Barcode: LEM-1'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('Stock').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('On-device'));
     await tester.pumpAndSettle();
     expect(find.text('Local Lemon'), findsOneWidget);
     expect(find.textContaining('Low local stock'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
     expect(
       find.textContaining('On-device counts do not sync to POS'),
       findsOneWidget,
     );
+    await tester.tap(find.text('Items').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Local Lemon').last);
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -700));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('Delete local item'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Your on-device catalog is empty.'), findsOneWidget);
   });
 }
