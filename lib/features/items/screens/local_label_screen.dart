@@ -127,7 +127,8 @@ class _LocalLabelScreenState extends State<LocalLabelScreen> {
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   if (_sku.text.isNotEmpty) Text('SKU: ${_sku.text}'),
-                  if (_barcode.text.isNotEmpty) Text('Barcode: ${_barcode.text}'),
+                  if (_barcode.text.isNotEmpty)
+                    Text('Barcode: ${_barcode.text}'),
                   if (_category.text.isNotEmpty)
                     Text('Category: ${_category.text}'),
                   if (_price.text.isNotEmpty)

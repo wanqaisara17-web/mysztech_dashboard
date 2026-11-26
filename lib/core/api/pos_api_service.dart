@@ -9,9 +9,17 @@ import '../models/inventory_stock.dart';
 import '../models/item.dart';
 import '../models/authenticated_user.dart';
 import '../models/sales_page.dart';
+import '../models/outlet.dart';
+import '../models/sales_history.dart';
+import '../models/sale.dart';
 
 const posApiProductionUrl = 'https://mysztech.com/api';
 const posApiBaseUrl = posApiProductionUrl;
+
+typedef InventoryRetrievedCallback = Future<void> Function(
+  String outletId,
+  List<InventoryStock> inventory,
+);
 
 class PosApiException implements Exception {
   const PosApiException(
@@ -41,13 +49,27 @@ class PosApiService {
   final HttpClient _client;
   final String baseUrl;
   String _token;
-  Future<SalesPage>? _salesRequest;
+  final Map<String, Future<SalesPage>> _salesRequests = {};
+  Future<List<Outlet>>? _outletsRequest;
+  String? _selectedOutletId;
   Future<List<PosItem>>? _itemsRequest;
   Future<List<InventoryStock>>? _inventoryRequest;
   Future<List<InventoryMovement>>? _movementsRequest;
-  Future<String>? _outletIdRequest;
   final Map<String, Future<String?>> _categoryNames = {};
+  InventoryRetrievedCallback? onInventoryRetrieved;
   static const requestTimeout = Duration(seconds: 20);
+
+  String? get selectedOutletId => _selectedOutletId;
+
+  void selectOutlet(String outletId) {
+    if (_selectedOutletId == outletId) return;
+    _selectedOutletId = outletId;
+    _salesRequests.clear();
+    _itemsRequest = null;
+    _inventoryRequest = null;
+    _movementsRequest = null;
+    _categoryNames.clear();
+  }
 
   void setToken(String value) {
     final cleaned = value
@@ -55,11 +77,12 @@ class PosApiService {
         .replaceFirst(RegExp(r'^Bearer\s+', caseSensitive: false), '')
         .trim();
     _token = cleaned;
-    _salesRequest = null;
+    _salesRequests.clear();
+    _outletsRequest = null;
+    _selectedOutletId = null;
     _itemsRequest = null;
     _inventoryRequest = null;
     _movementsRequest = null;
-    _outletIdRequest = null;
     _categoryNames.clear();
   }
 
@@ -146,6 +169,7 @@ class PosApiService {
       return AuthenticatedUser(
         name: data['name']?.toString() ?? 'User',
         email: data['email']?.toString(),
+        accountId: data['id']?.toString(),
       );
     } on PosApiException {
       rethrow;
@@ -170,11 +194,113 @@ class PosApiService {
     }
   }
 
-  Future<SalesPage> getSales({bool forceRefresh = false}) {
-    if (forceRefresh || _salesRequest == null) {
-      _salesRequest = _loadSales();
+  Future<SalesPage> getSales({
+    bool forceRefresh = false,
+    int page = 1,
+    String? outletId,
+  }) async {
+    final selected = outletId ?? await _effectiveOutletId();
+    final key = '$selected:$page';
+    if (forceRefresh || !_salesRequests.containsKey(key)) {
+      _salesRequests[key] = _loadSales(page: page, outletId: selected);
     }
-    return _salesRequest!;
+    return _salesRequests[key]!;
+  }
+
+  Future<List<Outlet>> getOutlets({bool forceRefresh = false}) {
+    if (forceRefresh || _outletsRequest == null) {
+      _outletsRequest = _loadOutlets();
+    }
+    return _outletsRequest!;
+  }
+
+  Future<SalesHistory> getCompleteSalesHistory({String? outletId}) async {
+    final selected = outletId ?? await _effectiveOutletId();
+    final first = await getSales(page: 1, outletId: selected);
+    final byId = <String, Sale>{};
+    void add(SalesPage page) {
+      for (final sale in page.sales) {
+        final key = sale.id.isNotEmpty ? sale.id : (sale.showUuid ?? '');
+        if (key.isNotEmpty) byId.putIfAbsent(key, () => sale);
+      }
+    }
+
+    add(first);
+    var complete =
+        (first.lastPage == 1 &&
+            (first.total == null || byId.length >= first.total!)) ||
+        (first.total != null && byId.length >= first.total!);
+    Object? error;
+    final lastPage = first.lastPage;
+    if (!complete && lastPage != null && lastPage > 1) {
+      for (var pageNumber = 2; pageNumber <= lastPage; pageNumber++) {
+        try {
+          final before = byId.length;
+          final nextPage = await getSales(page: pageNumber, outletId: selected);
+          add(nextPage);
+          if (byId.length == before &&
+              (first.total == null || byId.length < first.total!)) {
+            error = const FormatException(
+              'The API did not return new receipt records for the requested page.',
+            );
+            break;
+          }
+        } catch (caught) {
+          error = caught;
+          break;
+        }
+      }
+      complete = error == null && byId.length >= (first.total ?? byId.length);
+    }
+    return SalesHistory(
+      sales: byId.values.toList(growable: false),
+      total: first.total,
+      isComplete: complete,
+      error: error,
+    );
+  }
+
+  Future<String> _effectiveOutletId() async {
+    if (_selectedOutletId case final selected?) return selected;
+    final outlets = await getOutlets();
+    if (outlets.isEmpty) {
+      throw const PosApiException(
+        'No accessible outlet was found for this account.',
+      );
+    }
+    _selectedOutletId = outlets.first.id;
+    return _selectedOutletId!;
+  }
+
+  Future<List<Outlet>> _loadOutlets() async {
+    final first = await _getListPage('/v2/outlets/list', 1);
+    final rows = [...first.rows];
+    final seenIds = rows
+        .map((row) => row['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final lastPage = first.lastPage;
+    if (lastPage != null && lastPage > 1) {
+      for (var page = 2; page <= lastPage; page++) {
+        try {
+          final nextRows = (await _getListPage('/v2/outlets/list', page)).rows;
+          final newRows = nextRows.where((row) {
+            final id = row['id']?.toString() ?? '';
+            return id.isEmpty || seenIds.add(id);
+          }).toList();
+          if (newRows.isEmpty) break;
+          rows.addAll(newRows);
+        } on PosApiException {
+          break;
+        }
+      }
+    }
+    final unique = <String, Outlet>{};
+    for (final row in rows) {
+      final outlet = Outlet.fromJson(row);
+      if (outlet.id.isNotEmpty) unique[outlet.id] = outlet;
+    }
+    return unique.values.toList(growable: false);
   }
 
   Future<List<PosItem>> getItems({bool forceRefresh = false}) {
@@ -225,18 +351,23 @@ class PosApiService {
   }
 
   Future<List<InventoryStock>> _loadInventoryStock() async {
-    final rowsFuture = _getList('/v2/inventory-outlet/list');
+    final outletId = await _effectiveOutletId();
+    final rowsFuture = _getAllList(
+      '/v2/inventory-outlet/list',
+      outletId: outletId,
+    );
     final itemsFuture = getItems()
         .then<List<PosItem>>((items) => items)
         .catchError((Object _) => <PosItem>[]);
     final results = await Future.wait<Object>([rowsFuture, itemsFuture]);
-    final rows = results[0] as List<Map<String, dynamic>>;
+    final pagedRows = results[0] as _PagedRows;
+    final rows = pagedRows.rows;
     final items = results[1] as List<PosItem>;
     final namesByInventoryId = <String, String>{
       for (final item in items)
         if (item.inventoryId != null) item.inventoryId!: item.name,
     };
-    return rows
+    final stock = rows
         .map((row) {
           final id = row['inventory_id']?.toString() ?? '';
           return InventoryStock.fromJson(
@@ -245,14 +376,24 @@ class PosApiService {
           );
         })
         .toList(growable: false);
+    final callback = onInventoryRetrieved;
+    if (pagedRows.isComplete &&
+        _selectedOutletId == outletId &&
+        callback != null) {
+      unawaited(
+        Future<void>.sync(() => callback(outletId, stock))
+            .catchError((Object _) {}),
+      );
+    }
+    return stock;
   }
 
   Future<List<InventoryMovement>> _loadInventoryMovements() async {
     final results = await Future.wait<Object>([
       _getList('/v2/inventory-transactions/list'),
-      getItems().then<List<PosItem>>((items) => items).catchError(
-        (Object _) => <PosItem>[],
-      ),
+      getItems()
+          .then<List<PosItem>>((items) => items)
+          .catchError((Object _) => <PosItem>[]),
     ]);
     final rows = results[0] as List<Map<String, dynamic>>;
     final items = results[1] as List<PosItem>;
@@ -260,34 +401,16 @@ class PosApiService {
       for (final item in items)
         if (item.inventoryId != null) item.inventoryId!: item.name,
     };
-    return rows.map((row) {
-      final movement = InventoryMovement.fromJson(row);
-      return movement.withName(
-        movement.name?.isNotEmpty == true
-            ? movement.name
-            : namesByInventoryId[movement.inventoryId],
-      );
-    }).toList(growable: false);
-  }
-
-  Future<String> _getOutletId() {
-    _outletIdRequest ??= _loadOutletId();
-    return _outletIdRequest!;
-  }
-
-  Future<String> _loadOutletId() async {
-    final document = await _getDocument('/v2/outlets/list');
-    final data = document['data'];
-    if (data is List) {
-      for (final outlet in data.whereType<Map<String, dynamic>>()) {
-        final id = outlet['id']?.toString();
-        if (id != null && id.isNotEmpty) return id;
-      }
-    }
-
-    throw const PosApiException(
-      'No accessible outlet was found for this account.',
-    );
+    return rows
+        .map((row) {
+          final movement = InventoryMovement.fromJson(row);
+          return movement.withName(
+            movement.name?.isNotEmpty == true
+                ? movement.name
+                : namesByInventoryId[movement.inventoryId],
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<String?> _categoryName(String? id) {
@@ -306,17 +429,95 @@ class PosApiService {
   }
 
   Future<List<Map<String, dynamic>>> _getList(String path) async {
-    final document = await _getDocument(path);
+    return (await _getListPage(path, 1)).rows;
+  }
+
+  Future<_PagedRows> _getAllList(
+    String path, {
+    required String outletId,
+  }) async {
+    final first = await _getListPage(path, 1, outletId: outletId);
+    final rows = [...first.rows];
+    final seen = <String>{
+      for (final row in rows)
+        if ((row['inventory_id']?.toString() ?? '').isNotEmpty)
+          row['inventory_id'].toString(),
+    };
+    final lastPage = first.lastPage;
+    final total = first.total;
+    if (lastPage == null) {
+      return _PagedRows(
+        rows: rows,
+        isComplete: total != null && rows.length >= total,
+      );
+    }
+    if (lastPage <= 1) {
+      return _PagedRows(
+        rows: rows,
+        isComplete: total == null || rows.length >= total,
+      );
+    }
+
+    var isComplete = true;
+    for (var page = 2; page <= lastPage; page++) {
+      try {
+        final next = await _getListPage(path, page, outletId: outletId);
+        final newRows = next.rows
+            .where((row) {
+              final id = row['inventory_id']?.toString() ?? '';
+              return id.isEmpty || seen.add(id);
+            })
+            .toList(growable: false);
+        if (newRows.isEmpty && next.rows.isNotEmpty) {
+          isComplete = false;
+          break;
+        }
+        rows.addAll(newRows);
+      } on PosApiException {
+        isComplete = false;
+        break;
+      }
+    }
+    if (total != null && rows.length < total) isComplete = false;
+    return _PagedRows(rows: rows, isComplete: isComplete);
+  }
+
+  Future<({List<Map<String, dynamic>> rows, int? lastPage, int? total})>
+  _getListPage(String path, int page, {String? outletId}) async {
+    final document = await _getDocument(
+      page == 1 ? path : '$path?page=$page',
+      useOutletHeader: path != '/v2/outlets/list',
+      outletId: outletId,
+    );
     final data = document['data'];
     if (data is! List) {
       throw PosApiException(
         'The ${_endpointName(path)} response did not contain a list.',
       );
     }
-    return data.whereType<Map<String, dynamic>>().toList(growable: false);
+    final paginator = document['paginator'];
+    final rawLastPage = paginator is Map<String, dynamic>
+        ? paginator['lastPage']
+        : null;
+    final lastPage = rawLastPage is int
+        ? rawLastPage
+        : int.tryParse('$rawLastPage');
+    final rawTotal = paginator is Map<String, dynamic>
+        ? paginator['total']
+        : null;
+    final total = rawTotal is int ? rawTotal : int.tryParse('$rawTotal');
+    return (
+      rows: data.whereType<Map<String, dynamic>>().toList(growable: false),
+      lastPage: lastPage,
+      total: total,
+    );
   }
 
-  Future<Map<String, dynamic>> _getDocument(String path) async {
+  Future<Map<String, dynamic>> _getDocument(
+    String path, {
+    bool useOutletHeader = true,
+    String? outletId,
+  }) async {
     if (_token.isEmpty) {
       throw const PosApiException(
         'Connect an authorized production token from Sales to load this data.',
@@ -328,8 +529,11 @@ class PosApiService {
           .getUrl(Uri.parse('$baseUrl$path'))
           .timeout(requestTimeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
-      if (path != '/v2/outlets/list') {
-        request.headers.set('outlet-id', await _getOutletId());
+      if (useOutletHeader) {
+        request.headers.set(
+          'outlet-id',
+          outletId ?? await _effectiveOutletId(),
+        );
       }
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       final response = await request.close().timeout(requestTimeout);
@@ -345,7 +549,7 @@ class PosApiService {
       }
       if (response.statusCode == HttpStatus.forbidden) {
         throw PosApiException(
-        'This production account is not permitted to access ${_endpointName(path)}.',
+          'This production account is not permitted to access ${_endpointName(path)}.',
           statusCode: HttpStatus.forbidden,
         );
       }
@@ -415,7 +619,10 @@ class PosApiService {
     _ => 'production API',
   };
 
-  Future<SalesPage> _loadSales() async {
+  Future<SalesPage> _loadSales({
+    required int page,
+    required String outletId,
+  }) async {
     debugPrint(
       '[Sales API] request starting: token present=${_token.isNotEmpty}',
     );
@@ -427,8 +634,7 @@ class PosApiService {
     }
 
     try {
-      final outletId = await _getOutletId();
-      final uri = Uri.parse('$baseUrl/v2/receipts/list');
+      final uri = Uri.parse('$baseUrl/v2/receipts/list?page=$page');
       final request = await _client.getUrl(uri).timeout(requestTimeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
       request.headers.set('outlet-id', outletId);
@@ -510,4 +716,11 @@ class PosApiService {
   }
 
   void close() => _client.close(force: true);
+}
+
+class _PagedRows {
+  const _PagedRows({required this.rows, required this.isComplete});
+
+  final List<Map<String, dynamic>> rows;
+  final bool isComplete;
 }

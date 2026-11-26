@@ -3,8 +3,61 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_monitoring_app/core/api/pos_api_service.dart';
+import 'package:pos_monitoring_app/core/models/outlet.dart';
+import 'package:pos_monitoring_app/core/models/receipt_activity.dart';
+import 'package:pos_monitoring_app/core/models/sale.dart';
+import 'package:pos_monitoring_app/core/models/sales_history.dart';
 
 void main() {
+  test('outlet names map by ID and unknown IDs have a safe fallback', () {
+    final names = outletNamesById(const [
+      Outlet(id: 'a', name: 'Demo Outlet A'),
+      Outlet(id: 'b', name: ''),
+    ]);
+    expect(outletLabel(names, 'a'), 'Demo Outlet A');
+    expect(outletLabel(names, 'b'), 'Outlet b');
+    expect(outletLabel(names, 'missing'), 'Outlet missing');
+  });
+
+  test('daily chart counts use created_at and hide incomplete histories', () {
+    final history = SalesHistory(
+      sales: [
+        Sale.fromJson({'id': '1', 'created_at': '2026-11-24T08:00:00Z'}),
+        Sale.fromJson({'id': '2', 'created_at': '2026-11-24T10:00:00Z'}),
+        Sale.fromJson({'id': '3', 'created_at': '2026-11-23T10:00:00Z'}),
+      ],
+      total: 3,
+      isComplete: true,
+    );
+    final counts = dailyReceiptCounts(
+      history,
+      through: DateTime(2026, 11, 24),
+      days: 2,
+    )!;
+    expect(counts[DateTime(2026, 11, 23)], 1);
+    expect(counts[DateTime(2026, 11, 24)], 2);
+    expect(
+      dailyReceiptCounts(
+        SalesHistory(sales: history.sales, total: 3, isComplete: false),
+        through: DateTime(2026, 11, 24),
+      ),
+      isNull,
+    );
+    expect(
+      dailyReceiptCounts(
+        SalesHistory(
+          sales: [
+            Sale.fromJson({'id': 'missing-date'}),
+          ],
+          total: 1,
+          isComplete: true,
+        ),
+        through: DateTime(2026, 11, 24),
+      ),
+      isNull,
+    );
+  });
+
   test('the default API base URL targets production', () {
     final api = PosApiService();
 
@@ -108,7 +161,7 @@ void main() {
       final dashboardLoad = api.getSales();
       final salesLoad = api.getSales();
 
-      expect(identical(dashboardLoad, salesLoad), isTrue);
+      expect(identical(dashboardLoad, salesLoad), isFalse);
       await Future.wait([dashboardLoad, salesLoad]);
       expect(requestCount, 2);
     } finally {
@@ -117,6 +170,272 @@ void main() {
       await server.close(force: true);
     }
   });
+
+  test('loads all authorized outlet pages and deduplicates receipt pages', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final requests = <String>[];
+    final outlets = [
+      for (var i = 1; i <= 10; i++)
+        {'id': 'outlet-$i', 'name': 'Demo Outlet $i'},
+      {'id': 'outlet-11', 'name': 'Demo Outlet 11'},
+    ];
+    final serverSubscription = server.listen((request) async {
+      requests.add(
+        '${request.uri.path}?${request.uri.query}#${request.headers.value('outlet-id')}',
+      );
+      request.response.headers.contentType = ContentType.json;
+      final page =
+          int.tryParse(request.uri.queryParameters['page'] ?? '1') ?? 1;
+      dynamic data;
+      Map<String, dynamic> paginator;
+      if (request.uri.path == '/api/v2/outlets/list') {
+        data = page == 1
+            ? outlets.take(10).toList()
+            : outlets.skip(10).toList();
+        paginator = {
+          'total': '11',
+          'count': '${(data as List).length}',
+          'lastPage': '2',
+          'perPage': '10',
+        };
+      } else {
+        data = page == 1
+            ? [
+                {
+                  'id': 'r-1',
+                  'show_uuid': 'R001',
+                  'outlet_id': 'outlet-1',
+                  'created_at': '2026-11-20T10:00:00Z',
+                },
+                {'id': 'r-2', 'outlet_id': 'outlet-1'},
+              ]
+            : [
+                {'id': 'r-2', 'outlet_id': 'outlet-1'},
+                {'id': 'r-3', 'outlet_id': 'outlet-1'},
+              ];
+        paginator = {
+          'total': '3',
+          'count': '2',
+          'lastPage': '2',
+          'perPage': '2',
+        };
+      }
+      request.response.write(
+        jsonEncode({
+          'is_success': true,
+          'status_code': 200,
+          'data': data,
+          'paginator': paginator,
+        }),
+      );
+      await request.response.close();
+    });
+    final api = PosApiService(
+      baseUrl: 'http://127.0.0.1:${server.port}/api',
+      token: 'local-test-token',
+    );
+    try {
+      final loadedOutlets = await api.getOutlets();
+      expect(loadedOutlets, hasLength(11));
+      expect(loadedOutlets.last.name, 'Demo Outlet 11');
+      api.selectOutlet('outlet-1');
+      final history = await api.getCompleteSalesHistory();
+      expect(history.isComplete, isTrue);
+      expect(history.sales.map((sale) => sale.id).toSet(), {
+        'r-1',
+        'r-2',
+        'r-3',
+      });
+      expect(history.sales.first.showUuid, 'R001');
+      expect(requests, contains('/api/v2/receipts/list?page=2#outlet-1'));
+      expect(
+        requests.where((request) => request.contains('/outlets/list')).length,
+        2,
+      );
+    } finally {
+      api.close();
+      await serverSubscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('marks receipt history incomplete when a later page fails', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final serverSubscription = server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      if (request.uri.path.endsWith('/outlets/list')) {
+        request.response.write(
+          jsonEncode({
+            'is_success': true,
+            'status_code': 200,
+            'data': [
+              {'id': 'o1', 'name': 'Demo Outlet North'},
+            ],
+            'paginator': {'total': '1', 'lastPage': '1'},
+          }),
+        );
+      } else if (request.uri.queryParameters['page'] == '2') {
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        request.response.write('{}');
+      } else {
+        request.response.write(
+          jsonEncode({
+            'is_success': true,
+            'status_code': 200,
+            'data': [
+              {'id': 'r1', 'created_at': '2026-11-20T10:00:00Z'},
+            ],
+            'paginator': {
+              'total': '2',
+              'count': '1',
+              'lastPage': '2',
+              'perPage': '1',
+            },
+          }),
+        );
+      }
+      await request.response.close();
+    });
+    final api = PosApiService(
+      baseUrl: 'http://127.0.0.1:${server.port}/api',
+      token: 'local-test-token',
+    );
+    try {
+      final history = await api.getCompleteSalesHistory();
+      expect(history.isComplete, isFalse);
+      expect(history.sales, hasLength(1));
+      expect(history.error, isA<PosApiException>());
+    } finally {
+      api.close();
+      await serverSubscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test('selecting another outlet scopes fresh receipt requests', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final receivedOutlets = <String>[];
+    final serverSubscription = server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      if (request.uri.path.endsWith('/outlets/list')) {
+        request.response.write(
+          jsonEncode({
+            'is_success': true,
+            'status_code': 200,
+            'data': [
+              {'id': 'demo-outlet-north', 'name': 'Demo Outlet North'},
+              {'id': 'demo-outlet-south', 'name': 'Demo Outlet South'},
+            ],
+            'paginator': {'total': '2', 'lastPage': '1'},
+          }),
+        );
+      } else {
+        final outlet = request.headers.value('outlet-id') ?? '';
+        receivedOutlets.add(outlet);
+        request.response.write(
+          jsonEncode({
+            'is_success': true,
+            'status_code': 200,
+            'data': [
+              {'id': 'receipt-$outlet', 'outlet_id': outlet},
+            ],
+            'paginator': {
+              'total': '1',
+              'count': '1',
+              'lastPage': '1',
+              'perPage': '10',
+            },
+          }),
+        );
+      }
+      await request.response.close();
+    });
+    final api = PosApiService(
+      baseUrl: 'http://127.0.0.1:${server.port}/api',
+      token: 'local-test-token',
+    );
+    try {
+      await api.getOutlets();
+      api.selectOutlet('demo-outlet-north');
+      expect((await api.getSales()).sales.single.outletId, 'demo-outlet-north');
+      api.selectOutlet('demo-outlet-south');
+      expect((await api.getSales()).sales.single.outletId, 'demo-outlet-south');
+      expect(receivedOutlets, ['demo-outlet-north', 'demo-outlet-south']);
+    } finally {
+      api.close();
+      await serverSubscription.cancel();
+      await server.close(force: true);
+    }
+  });
+
+  test(
+    'incomplete inventory pagination does not publish notification data',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final serverSubscription = server.listen((request) async {
+        request.response.headers.contentType = ContentType.json;
+        if (request.uri.path.endsWith('/outlets/list')) {
+          request.response.write(
+            jsonEncode({
+              'is_success': true,
+              'status_code': 200,
+              'data': [
+                {'id': 'outlet-1', 'name': 'Demo Outlet'},
+              ],
+              'paginator': {'total': '1', 'lastPage': '1'},
+            }),
+          );
+        } else if (request.uri.path.endsWith('/inventory-outlet/list') &&
+            request.uri.queryParameters['page'] == '2') {
+          request.response.statusCode = HttpStatus.serviceUnavailable;
+          request.response.write('{}');
+        } else if (request.uri.path.endsWith('/inventory-outlet/list')) {
+          request.response.write(
+            jsonEncode({
+              'is_success': true,
+              'status_code': 200,
+              'data': [
+                {
+                  'inventory_id': 'inv-1',
+                  'outlet_id': 'outlet-1',
+                  'current_quantity': '1',
+                  'low_stock_threshold': '2',
+                },
+              ],
+              'paginator': {'total': '2', 'lastPage': '2'},
+            }),
+          );
+        } else {
+          request.response.write(
+            jsonEncode({
+              'is_success': true,
+              'status_code': 200,
+              'data': <dynamic>[],
+              'paginator': {'total': '0', 'lastPage': '1'},
+            }),
+          );
+        }
+        await request.response.close();
+      });
+      final api = PosApiService(
+        baseUrl: 'http://127.0.0.1:${server.port}/api',
+        token: 'local-test-token',
+      );
+      var notificationCallbacks = 0;
+      api.onInventoryRetrieved = (outletId, inventory) async {
+        notificationCallbacks++;
+      };
+      try {
+        final inventory = await api.getInventoryStock();
+        expect(inventory, hasLength(1));
+        expect(notificationCallbacks, 0);
+      } finally {
+        api.close();
+        await serverSubscription.cancel();
+        await server.close(force: true);
+      }
+    },
+  );
 
   test(
     'documented item and inventory GET endpoints use the session bearer token',

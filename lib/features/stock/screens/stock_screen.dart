@@ -5,6 +5,7 @@ import '../../../core/local/local_workspace.dart';
 import '../../../core/models/inventory_movement.dart';
 import '../../../core/models/inventory_stock.dart';
 import '../../../core/models/local_product.dart';
+import '../../../core/models/outlet.dart';
 import '../../../core/widgets/section_card.dart';
 import '../../../shared/widgets/page_header.dart';
 
@@ -15,11 +16,15 @@ class StockScreen extends StatefulWidget {
     required this.onConnect,
     required this.workspace,
     required this.onOpenLocalItems,
+    this.outletNames = const {},
+    this.selectedOutletId,
   });
   final PosApiService apiService;
   final VoidCallback onConnect;
   final LocalWorkspace workspace;
   final VoidCallback onOpenLocalItems;
+  final Map<String, String> outletNames;
+  final String? selectedOutletId;
 
   @override
   State<StockScreen> createState() => StockScreenState();
@@ -67,6 +72,16 @@ class StockScreenState extends State<StockScreen> {
   }
 
   void _refresh() => refresh();
+
+  @override
+  void didUpdateWidget(covariant StockScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedOutletId != null &&
+        oldWidget.selectedOutletId != widget.selectedOutletId) {
+      _stock = widget.apiService.getInventoryStock(forceRefresh: true);
+      _movements = widget.apiService.getInventoryMovements(forceRefresh: true);
+    }
+  }
 
   void _selectView(String view) {
     setState(() {
@@ -166,7 +181,8 @@ class StockScreenState extends State<StockScreen> {
                 if (_view == 'inventory') ...[
                   TextField(
                     controller: _searchController,
-                    onChanged: (value) => setState(() => _query = value.trim().toLowerCase()),
+                    onChanged: (value) =>
+                        setState(() => _query = value.trim().toLowerCase()),
                     decoration: const InputDecoration(
                       hintText: 'Search inventory by product name',
                       prefixIcon: Icon(Icons.search),
@@ -174,10 +190,21 @@ class StockScreenState extends State<StockScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Wrap(spacing: 8, children: [
-                    ChoiceChip(label: const Text('All Stock'), selected: !_lowOnly, onSelected: (_) => setState(() => _lowOnly = false)),
-                    ChoiceChip(label: const Text('Low Stock'), selected: _lowOnly, onSelected: (_) => setState(() => _lowOnly = true)),
-                  ]),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('All Stock'),
+                        selected: !_lowOnly,
+                        onSelected: (_) => setState(() => _lowOnly = false),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Low Stock'),
+                        selected: _lowOnly,
+                        onSelected: (_) => setState(() => _lowOnly = true),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                 ],
                 if (_view == 'local')
@@ -242,7 +269,10 @@ class StockScreenState extends State<StockScreen> {
                           for (final row in rows)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                              child: _MovementTile(movement: row),
+                              child: _MovementTile(
+                                movement: row,
+                                outletNames: widget.outletNames,
+                              ),
                             ),
                         ],
                       );
@@ -263,7 +293,10 @@ class StockScreenState extends State<StockScreen> {
                         );
                       }
                       final rows = (snapshot.data ?? const <InventoryStock>[])
-                          .where((row) => row.itemName.toLowerCase().contains(_query))
+                          .where(
+                            (row) =>
+                                row.itemName.toLowerCase().contains(_query),
+                          )
                           .where((row) => !_lowOnly || row.isLowStock)
                           .toList(growable: false);
                       if (rows.isEmpty) {
@@ -300,7 +333,15 @@ class StockScreenState extends State<StockScreen> {
                           for (final row in rows)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                              child: _StockTile(stock: row, onTap: () => _showStockDetails(context, row)),
+                              child: _StockTile(
+                                stock: row,
+                                outletNames: widget.outletNames,
+                                onTap: () => _showStockDetails(
+                                  context,
+                                  row,
+                                  widget.outletNames,
+                                ),
+                              ),
                             ),
                         ],
                       );
@@ -315,18 +356,36 @@ class StockScreenState extends State<StockScreen> {
   );
 }
 
-void _showStockDetails(BuildContext context, InventoryStock stock) {
-  showDialog<void>(context: context, builder: (context) => AlertDialog(
-    title: Text(stock.itemName),
-    content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Inventory ID: ${stock.inventoryId}'),
-      Text('Outlet ID: ${stock.outletId ?? '—'}'),
-      Text('Available: ${stock.quantity}'),
-      Text('Low-stock threshold: ${stock.lowStockThreshold?.toString() ?? 'Not provided'}'),
-      Text('Enabled: ${stock.enabled?.toString() ?? 'Not provided'}'),
-    ]),
-    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
-  ));
+void _showStockDetails(
+  BuildContext context,
+  InventoryStock stock,
+  Map<String, String> outletNames,
+) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(stock.itemName),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Inventory ID: ${stock.inventoryId}'),
+          Text('Outlet: ${outletLabel(outletNames, stock.outletId)}'),
+          Text('Available: ${stock.quantity}'),
+          Text(
+            'Low-stock threshold: ${stock.lowStockThreshold?.toString() ?? 'Not provided'}',
+          ),
+          Text('Enabled: ${stock.enabled?.toString() ?? 'Not provided'}'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _StockViewChip extends StatelessWidget {
@@ -354,85 +413,103 @@ class _StockViewChip extends StatelessWidget {
 }
 
 class _StockTile extends StatelessWidget {
-  const _StockTile({required this.stock, required this.onTap});
+  const _StockTile({
+    required this.stock,
+    required this.outletNames,
+    required this.onTap,
+  });
   final InventoryStock stock;
+  final Map<String, String> outletNames;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: SectionCard(
-    padding: const EdgeInsets.all(16),
-    child: Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(11),
-          decoration: BoxDecoration(
-            color: stock.isLowStock
-                ? const Color(0xFFFFF2DD)
-                : const Color(0xFFE8F4EC),
-            borderRadius: BorderRadius.circular(13),
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: SectionCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              color: stock.isLowStock
+                  ? const Color(0xFFFFF2DD)
+                  : const Color(0xFFE8F4EC),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              stock.isLowStock
+                  ? Icons.warning_amber_rounded
+                  : Icons.inventory_2_outlined,
+              color: const Color(0xFF17834B),
+            ),
           ),
-          child: Icon(
-            stock.isLowStock
-                ? Icons.warning_amber_rounded
-                : Icons.inventory_2_outlined,
-            color: const Color(0xFF17834B),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stock.itemName,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${outletLabel(outletNames, stock.outletId)} · Inventory ${stock.inventoryId}',
+                  style: const TextStyle(
+                    color: Color(0xFF69756E),
+                    fontSize: 12,
+                  ),
+                ),
+                if (stock.lowStockThreshold == null)
+                  const Text(
+                    'Threshold not provided',
+                    style: TextStyle(color: Color(0xFF69756E), fontSize: 12),
+                  ),
+                if (stock.isLowStock)
+                  const Text(
+                    'Low stock · at or below API threshold',
+                    style: TextStyle(
+                      color: Color(0xFFB54735),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                stock.itemName,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Outlet ${stock.outletId ?? '—'} · Inventory ${stock.inventoryId}',
-                style: const TextStyle(color: Color(0xFF69756E), fontSize: 12),
-              ),
-              if (stock.lowStockThreshold == null)
-                const Text(
-                  'Threshold not provided',
-                  style: TextStyle(color: Color(0xFF69756E), fontSize: 12),
+                _quantity(stock.quantity),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
                 ),
-              if (stock.isLowStock)
-                const Text(
-                  'Low stock · at or below API threshold',
-                  style: TextStyle(
-                    color: Color(0xFFB54735),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+              ),
+              if (stock.lowStockThreshold != null)
+                Text(
+                  'Min ${_quantity(stock.lowStockThreshold!)}',
+                  style: const TextStyle(
+                    color: Color(0xFF69756E),
+                    fontSize: 11,
                   ),
                 ),
             ],
           ),
-        ),
-        const SizedBox(width: 8),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              _quantity(stock.quantity),
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-            ),
-            if (stock.lowStockThreshold != null)
-              Text(
-                'Min ${_quantity(stock.lowStockThreshold!)}',
-                style: const TextStyle(color: Color(0xFF69756E), fontSize: 11),
-              ),
-          ],
-        ),
-      ],
+        ],
+      ),
     ),
-  ));
+  );
 }
 
 class _MovementTile extends StatelessWidget {
-  const _MovementTile({required this.movement});
+  const _MovementTile({required this.movement, required this.outletNames});
   final InventoryMovement movement;
+  final Map<String, String> outletNames;
   @override
   Widget build(BuildContext context) => SectionCard(
     padding: const EdgeInsets.all(16),
@@ -455,7 +532,8 @@ class _MovementTile extends StatelessWidget {
                 [
                   movement.type,
                   if (movement.reason?.isNotEmpty == true) movement.reason!,
-                  if (movement.outletId != null) 'Outlet ${movement.outletId}',
+                  if (movement.outletId != null)
+                    outletLabel(outletNames, movement.outletId),
                 ].join(' · '),
                 style: const TextStyle(color: Color(0xFF69756E), fontSize: 12),
               ),

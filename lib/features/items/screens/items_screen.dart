@@ -15,11 +15,13 @@ class ItemsScreen extends StatefulWidget {
     required this.apiService,
     required this.onConnect,
     required this.workspace,
+    this.selectedOutletId,
   });
 
   final PosApiService apiService;
   final VoidCallback onConnect;
   final LocalWorkspace workspace;
+  final String? selectedOutletId;
 
   @override
   State<ItemsScreen> createState() => ItemsScreenState();
@@ -35,6 +37,15 @@ class ItemsScreenState extends State<ItemsScreen> {
   void initState() {
     super.initState();
     _items = widget.apiService.getItems();
+  }
+
+  @override
+  void didUpdateWidget(covariant ItemsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedOutletId != null &&
+        oldWidget.selectedOutletId != widget.selectedOutletId) {
+      _items = widget.apiService.getItems(forceRefresh: true);
+    }
   }
 
   @override

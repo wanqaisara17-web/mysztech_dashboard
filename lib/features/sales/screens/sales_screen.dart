@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/api/pos_api_service.dart';
 import '../../../core/models/sale.dart';
-import '../../../core/models/sales_page.dart';
 import '../../../core/widgets/section_card.dart';
 import '../../../shared/widgets/page_header.dart';
 
@@ -11,42 +10,203 @@ class SalesScreen extends StatefulWidget {
     super.key,
     required this.apiService,
     this.onReauthenticate,
+    this.selectedOutletId,
+    this.outletNames = const {},
   });
 
   final PosApiService apiService;
   final VoidCallback? onReauthenticate;
+  final String? selectedOutletId;
+  final Map<String, String> outletNames;
 
   @override
-  State<SalesScreen> createState() => _SalesScreenState();
+  State<SalesScreen> createState() => SalesScreenState();
 }
 
-class _SalesScreenState extends State<SalesScreen> {
-  late Future<SalesPage> _sales;
+class _PageRetry extends StatelessWidget {
+  const _PageRetry({required this.onRetry});
+  final VoidCallback onRetry;
+  @override
+  Widget build(BuildContext context) => SectionCard(
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        children: [
+          const Text(
+            'More receipts could not be loaded. Loaded records remain available.',
+          ),
+          TextButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry loading more'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _EndOfSales extends StatelessWidget {
+  const _EndOfSales({
+    this.message = 'All available receipt records are loaded',
+  });
+  final String message;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.symmetric(vertical: 12),
+    child: Center(
+      child: Text(
+        message,
+        style: const TextStyle(color: Color(0xFF69756E), fontSize: 12),
+      ),
+    ),
+  );
+}
+
+class SalesScreenState extends State<SalesScreen> {
+  final _scrollController = ScrollController();
+  final List<Sale> _sales = [];
+  final Set<String> _requestedPages = {};
+  int? _total;
+  int? _lastPage;
+  int _page = 0;
+  int _generation = 0;
+  bool _loading = true;
+  bool _loadingMore = false;
+  bool _paginationUnavailable = false;
+  Object? _error;
 
   @override
   void didUpdateWidget(covariant SalesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.apiService != widget.apiService) {
-      _sales = widget.apiService.getSales(forceRefresh: true);
+    if (oldWidget.apiService != widget.apiService ||
+        (oldWidget.selectedOutletId != null &&
+            oldWidget.selectedOutletId != widget.selectedOutletId)) {
+      loadFirstPage();
     }
   }
 
   @override
   void initState() {
     super.initState();
-    _sales = widget.apiService.getSales();
+    _scrollController.addListener(_maybeLoadNext);
+    loadFirstPage();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void refreshForOutlet() => loadFirstPage();
+
+  void loadFirstPage() {
+    final generation = ++_generation;
+    setState(() {
+      _sales.clear();
+      _requestedPages.clear();
+      _page = 0;
+      _total = null;
+      _lastPage = null;
+      _paginationUnavailable = false;
+      _loading = true;
+      _loadingMore = false;
+      _error = null;
+    });
+    _loadPage(1, generation, forceRefresh: true);
   }
 
   void _retry() {
+    if (_sales.isEmpty) {
+      loadFirstPage();
+    } else if (_error != null) {
+      final next = _page + 1;
+      _loadPage(next, _generation, forceRefresh: true);
+    }
+  }
+
+  void _maybeLoadNext() {
+    if (!_scrollController.hasClients ||
+        _loading ||
+        _loadingMore ||
+        _error != null) {
+      return;
+    }
+    if (_scrollController.position.extentAfter < 320) _loadNextPage();
+  }
+
+  void _loadNextPage() {
+    final next = _page + 1;
+    if (_paginationUnavailable ||
+        (_lastPage != null && next > _lastPage!) ||
+        _requestedPages.contains('$_generation:$next')) {
+      return;
+    }
+    _loadPage(next, _generation);
+  }
+
+  Future<void> _loadPage(
+    int page,
+    int generation, {
+    bool forceRefresh = false,
+  }) async {
+    final requestKey = '$generation:$page';
+    if (!_requestedPages.add(requestKey)) {
+      return;
+    }
     setState(() {
-      _sales = widget.apiService.getSales(forceRefresh: true);
+      if (page == 1) {
+        _loading = true;
+      } else {
+        _loadingMore = true;
+      }
+      _error = null;
     });
+    try {
+      final result = await widget.apiService.getSales(
+        page: page,
+        outletId: widget.selectedOutletId,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        final before = _sales.length;
+        final existing = _sales
+            .map((sale) => sale.id.isNotEmpty ? sale.id : sale.showUuid ?? '')
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        for (final sale in result.sales) {
+          final key = sale.id.isNotEmpty ? sale.id : sale.showUuid ?? '';
+          if (key.isEmpty || existing.add(key)) _sales.add(sale);
+        }
+        _page = page;
+        _total = result.total;
+        _lastPage = result.lastPage;
+        if (page > 1 &&
+            _sales.length == before &&
+            (_total == null || _sales.length < _total!)) {
+          _paginationUnavailable = true;
+        }
+      });
+    } catch (error) {
+      if (mounted && generation == _generation) setState(() => _error = error);
+    } finally {
+      _requestedPages.remove(requestKey);
+      if (mounted && generation == _generation) {
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: () async => _retry(),
+    onRefresh: () async => loadFirstPage(),
     child: CustomScrollView(
+      controller: _scrollController,
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         const SliverToBoxAdapter(
@@ -67,47 +227,57 @@ class _SalesScreenState extends State<SalesScreen> {
                     ),
                     const Spacer(),
                     IconButton(
-                      onPressed: _retry,
+                      onPressed: loadFirstPage,
                       tooltip: 'Refresh sales',
                       icon: const Icon(Icons.refresh),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                FutureBuilder<SalesPage>(
-                  future: _sales,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const _LoadingState();
-                    }
-                    if (snapshot.hasError) {
-                      return _ErrorState(
-                        error: snapshot.error,
-                        onRetry: _retry,
-                        onReauthenticate: widget.onReauthenticate,
-                      );
-                    }
-                    final page = snapshot.data!;
-                    if (page.sales.isEmpty) {
-                      return _EmptyState(total: page.total);
-                    }
-                    return Column(
-                      children: [
-                        _CountBanner(
-                          total: page.total,
-                          showing: page.sales.length,
-                        ),
-                        const SizedBox(height: 12),
-                        ...page.sales.map(
-                          (sale) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _SaleTile(sale: sale),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+                if (_loading && _sales.isEmpty)
+                  const _LoadingState()
+                else if (_error != null && _sales.isEmpty)
+                  _ErrorState(
+                    error: _error,
+                    onRetry: _retry,
+                    onReauthenticate: widget.onReauthenticate,
+                  )
+                else if (_sales.isEmpty)
+                  _EmptyState(total: _total)
+                else ...[
+                  _CountBanner(total: _total, showing: _sales.length),
+                  const SizedBox(height: 12),
+                  ..._sales.map(
+                    (sale) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _SaleTile(
+                        sale: sale,
+                        outletName: widget.outletNames[sale.outletId],
+                      ),
+                    ),
+                  ),
+                  if (_loadingMore)
+                    const Padding(
+                      padding: EdgeInsets.all(18),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_error != null)
+                    _PageRetry(onRetry: _retry)
+                  else if (_paginationUnavailable)
+                    const _EndOfSales(
+                      message: 'The API did not return additional records for this page.',
+                    )
+                  else if (_lastPage != null && _page >= _lastPage!)
+                    const _EndOfSales()
+                  else if (_total != null && _sales.length >= _total!)
+                    const _EndOfSales()
+                  else
+                    TextButton.icon(
+                      onPressed: _loadNextPage,
+                      icon: const Icon(Icons.expand_more),
+                      label: const Text('Load more'),
+                    ),
+                ],
               ],
             ),
           ),
@@ -238,19 +408,37 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-void _showSaleDetails(BuildContext context, Sale sale) {
+void _showSaleDetails(BuildContext context, Sale sale, String? outletName) {
   showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text(sale.name?.isNotEmpty == true ? sale.name! : 'Receipt ${sale.id}'),
-      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Receipt ID: ${sale.id}'),
-        if (sale.outletId.isNotEmpty) Text('Outlet ID: ${sale.outletId}'),
-        if (sale.totalPrice != null) Text('Amount: ${sale.totalPrice!.toStringAsFixed(2)}'),
-        if (sale.createdAt != null) Text('Created: ${sale.createdAt!.toLocal()}'),
-        if (sale.chargedAt != null) Text('Charged: ${sale.chargedAt!.toLocal()}'),
-      ]),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      title: Text(
+        'Receipt ${sale.showUuid?.isNotEmpty == true ? sale.showUuid : sale.id}',
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Receipt ID: ${sale.id.isEmpty ? '—' : sale.id}'),
+          Text('Payable amount: ${sale.totalPrice?.toStringAsFixed(2) ?? '—'}'),
+          Text(
+            'Payment method: ${sale.paymentType?.isNotEmpty == true ? sale.paymentType : '—'}',
+          ),
+          Text(
+            'Order option: ${sale.orderOption?.isNotEmpty == true ? sale.orderOption : '—'}',
+          ),
+          Text('Date: ${sale.createdAt?.toLocal() ?? '—'}'),
+          Text(
+            'Outlet: ${outletName?.isNotEmpty == true ? outletName : (sale.outletId.isEmpty ? '—' : 'Outlet ${sale.outletId}')}',
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
     ),
   );
 }
@@ -270,7 +458,7 @@ class _CountBanner extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: Text(
-            '${total ?? showing} total records',
+            'Loaded $showing of ${total ?? showing} receipt records',
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
         ),
@@ -284,66 +472,72 @@ class _CountBanner extends StatelessWidget {
 }
 
 class _SaleTile extends StatelessWidget {
-  const _SaleTile({required this.sale});
+  const _SaleTile({required this.sale, this.outletName});
 
   final Sale sale;
+  final String? outletName;
 
   @override
   Widget build(BuildContext context) {
-    final timestamp = sale.chargedAt ?? sale.createdAt;
+    final timestamp = sale.createdAt ?? sale.chargedAt;
     final subtitle = [
       if (timestamp != null) _formatDate(timestamp),
-      if (sale.outletId.isNotEmpty) 'Outlet ID ${sale.outletId}',
+      if (outletName?.isNotEmpty == true) outletName!,
+      if (outletName?.isNotEmpty != true && sale.outletId.isNotEmpty)
+        'Outlet ${sale.outletId}',
     ].join(' | ');
     return GestureDetector(
-      onTap: () => _showSaleDetails(context, sale),
+      onTap: () => _showSaleDetails(context, sale, outletName),
       child: SectionCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(11),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F4EC),
-              borderRadius: BorderRadius.circular(13),
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F4EC),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(
+                Icons.receipt_outlined,
+                color: Color(0xFF17834B),
+              ),
             ),
-            child: const Icon(Icons.receipt_outlined, color: Color(0xFF17834B)),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  sale.name?.isNotEmpty == true
-                      ? sale.name!
-                      : 'Receipt ${sale.id}',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (subtitle.isNotEmpty) ...[
-                  const SizedBox(height: 5),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Color(0xFF69756E),
-                      fontSize: 12,
-                    ),
-                    maxLines: 2,
+                    'Receipt ${sale.showUuid?.isNotEmpty == true ? sale.showUuid : sale.id}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xFF69756E),
+                        fontSize: 12,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            sale.totalPrice == null ? '—' : sale.totalPrice!.toStringAsFixed(2),
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ],
-      ),
+            const SizedBox(width: 10),
+            Text(
+              sale.totalPrice == null
+                  ? '—'
+                  : sale.totalPrice!.toStringAsFixed(2),
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
       ),
     );
   }
